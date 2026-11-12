@@ -123,7 +123,7 @@ main.loading > * { opacity: .7; transition: opacity .15s; }
 .chip.sky { background: var(--chip-sky-bg); color: var(--chip-sky); }
 .chip.rose { background: var(--chip-rose-bg); color: var(--chip-rose); }
 
-.tile { display: flex; gap: 14px; align-items: flex-start; padding: 16px; }
+.tile { display: flex; gap: 14px; align-items: flex-start; padding: 16px; overflow: hidden; }
 .tile.clickable { cursor: pointer; transition: transform .15s, border-color .15s; }
 .tile.clickable:hover { transform: translateY(-2px); border-color: var(--accent); }
 .tile .chip { width: 42px; height: 42px; border-radius: 12px; }
@@ -132,7 +132,7 @@ main.loading > * { opacity: .7; transition: opacity .15s; }
 .tile .label { font-size: 13px; color: var(--text-2); }
 .tile .value { font-size: 24px; font-weight: 600; line-height: 1.15; letter-spacing: -.02em; margin-top: 2px; }
 .tile .detail { font-size: 12px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tile .spark { margin-top: 6px; }
+.tile .spark { margin-top: 6px; min-width: 0; }
 
 .issues { display: grid; gap: 8px; }
 .issue { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); }
@@ -240,7 +240,7 @@ td.nowrap { white-space: nowrap; }
 .wifi-bars { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; margin-right: 4px; }
 .wifi-bars i { width: 3px; background: var(--border); border-radius: 1px; }
 .wifi-bars i.on { background: var(--viz-1); }
-.sparkline { display: block; }
+.sparkline { display: block; width: 100%; max-width: 160px; height: 28px; }
 .inline-icon { width: 14px; height: 14px; vertical-align: -2px; }
 .probe-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .probe { border: 1px solid var(--border); border-radius: 12px; padding: 12px; }

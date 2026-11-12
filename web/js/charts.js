@@ -178,8 +178,9 @@ export function lines(container, { series, bucketSecs, height = 200, yFormat = f
 export function sparkline(points, color, width = 120, height = 28) {
   const vals = points.map((p) => (p === null || p === undefined ? null : p));
   const present = vals.filter((v) => v !== null);
-  const svg = h("svg:svg", { class: "sparkline", viewBox: `0 0 ${width} ${height}`, width, height, "aria-hidden": "true" });
-  if (!present.length) return svg;
+  // Fewer than three points cannot show a trend and only leave stray marks.
+  if (present.length < 3) return null;
+  const svg = h("svg:svg", { class: "sparkline", viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none", "aria-hidden": "true" });
   const max = Math.max(...present, 1), n = vals.length;
   let d = "", open = false;
   vals.forEach((v, i) => {
@@ -188,7 +189,7 @@ export function sparkline(points, color, width = 120, height = 28) {
     d += `${open ? " L" : " M"}${x.toFixed(1)} ${y.toFixed(1)}`;
     open = true;
   });
-  svg.appendChild(h("svg:path", { d, fill: "none", stroke: color, "stroke-width": "1.5", "stroke-linejoin": "round" }));
+  svg.appendChild(h("svg:path", { d, fill: "none", stroke: color, "stroke-width": "1.5", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" }));
   return svg;
 }
 

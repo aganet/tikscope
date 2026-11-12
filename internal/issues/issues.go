@@ -123,14 +123,25 @@ func Evaluate(ctx context.Context, st *store.Store, in Inputs) ([]Issue, error) 
 			Detail: fmt.Sprintf("average response time %.0f ms over the last 5 minutes", *sum.LatencyMS)})
 	}
 
-	// Interface errors and link flaps. Drops are not alerted: Wi-Fi
-	// interfaces drop frames constantly in normal operation.
+	// Interface errors and link flaps. Drops are never alerted and errors
+	// are ignored on Wi-Fi, where retransmissions are counted as errors.
+	wireless := map[string]bool{}
+	if in.Router != nil {
+		for _, i := range in.Router.Interfaces {
+			if i.Type == "wifi" || i.Type == "wlan" || i.Type == "wireless" || strings.HasPrefix(i.Type, "cap") {
+				wireless[i.Name] = true
+			}
+		}
+	}
 	for _, metric := range []string{routeros.MetricIfaceLinkDown, routeros.MetricIfaceErrors} {
 		keys, err := st.MetricKeys(ctx, metric, now.Add(-short))
 		if err != nil {
 			return nil, err
 		}
 		for _, k := range keys {
+			if metric == routeros.MetricIfaceErrors && wireless[k] {
+				continue
+			}
 			agg, err := st.MetricAggregate(ctx, metric, k, now.Add(-short))
 			if err != nil || agg.Sum == nil {
 				continue
@@ -140,7 +151,7 @@ func Evaluate(ctx context.Context, st *store.Store, in Inputs) ([]Issue, error) 
 					Detail: fmt.Sprintf("%.0f link down events in the last 5 minutes", *agg.Sum)})
 			} else if *agg.Sum >= 10 {
 				out = append(out, Issue{Severity: "warning", Kind: "interface", Key: k, Title: fmt.Sprintf("Errors on %s", k),
-					Detail: fmt.Sprintf("%.0f errors or drops in the last 5 minutes", *agg.Sum)})
+					Detail: fmt.Sprintf("%.0f errors in the last 5 minutes", *agg.Sum)})
 			}
 		}
 	}
