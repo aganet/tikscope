@@ -26,6 +26,7 @@ export const system = {
       ["Answers without a query", fmtInt(ingest.orphan_answers)],
       ["Other events", fmtInt(ingest.events)],
       ["DHCP leases seen", fmtInt(ingest.leases)],
+      ["Rejected (not in SYSLOG_SOURCES)", fmtInt(ingest.rejected)],
       ["Waiting for answer", fmtInt(ingest.pending)],
     ]), h("h3", { style: { margin: "14px 0 6px" } }, "Sources"),
       sources.length ? kv(sources.map(([addr, ts]) => [addr, fmtAgo(ts)])) : h("p", { class: "muted" }, "No syslog messages received yet."));

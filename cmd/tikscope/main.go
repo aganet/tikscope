@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
@@ -33,6 +34,7 @@ var version = "dev"
 type config struct {
 	httpAddr     string
 	syslogAddr   string
+	syslogFrom   []netip.Prefix
 	databasePath string
 	retention    store.Retention
 	dnsServer    string
@@ -119,6 +121,11 @@ func loadConfig() (config, error) {
 			*dst = mbps * 1e6
 		}
 	}
+	if s := os.Getenv("SYSLOG_SOURCES"); s != "" {
+		if cfg.syslogFrom, err = ingest.ParseSources(s); err != nil {
+			return cfg, fmt.Errorf("SYSLOG_SOURCES: %w", err)
+		}
+	}
 	if cfg.mikrotikURL != "" && cfg.mikrotikUser == "" {
 		return cfg, errors.New("MIKROTIK_USER is required when MIKROTIK_URL is set")
 	}
@@ -199,7 +206,7 @@ func run(cfg config, log *slog.Logger) error {
 		st.Run(storeCtx, cfg.retention)
 	}()
 
-	in := ingest.New(st, log)
+	in := ingest.New(st, cfg.syslogFrom, log)
 	errc := make(chan error, 2)
 	go func() { errc <- in.Listen(ctx, cfg.syslogAddr) }()
 

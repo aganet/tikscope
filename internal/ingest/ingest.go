@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,8 +41,9 @@ type pending struct {
 }
 
 type Ingester struct {
-	sink Sink
-	log  *slog.Logger
+	sink    Sink
+	log     *slog.Logger
+	allowed []netip.Prefix // empty means any source
 
 	mu      sync.Mutex
 	pending map[string]*pending
@@ -53,6 +55,7 @@ type Ingester struct {
 	orphans  atomic.Int64
 	events   atomic.Int64
 	leases   atomic.Int64
+	rejected atomic.Int64
 }
 
 type Stats struct {
@@ -62,12 +65,51 @@ type Stats struct {
 	Orphans  int64            `json:"orphan_answers"`
 	Events   int64            `json:"events"`
 	Leases   int64            `json:"leases"`
+	Rejected int64            `json:"rejected"` // datagrams from sources outside the allowlist
 	Pending  int              `json:"pending"`
 	Routers  map[string]int64 `json:"routers"` // last message time per source address
 }
 
-func New(sink Sink, log *slog.Logger) *Ingester {
-	return &Ingester{sink: sink, log: log, pending: map[string]*pending{}, routers: map[string]time.Time{}}
+func New(sink Sink, allowed []netip.Prefix, log *slog.Logger) *Ingester {
+	return &Ingester{sink: sink, log: log, allowed: allowed, pending: map[string]*pending{}, routers: map[string]time.Time{}}
+}
+
+// ParseSources reads a comma separated list of addresses or CIDR prefixes.
+func ParseSources(s string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for part := range strings.SplitSeq(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if p, err := netip.ParsePrefix(part); err == nil {
+			out = append(out, p)
+			continue
+		}
+		a, err := netip.ParseAddr(part)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	return out, nil
+}
+
+func (in *Ingester) allowedSource(ip net.IP) bool {
+	if len(in.allowed) == 0 {
+		return true
+	}
+	a, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	a = a.Unmap()
+	for _, p := range in.allowed {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
 }
 
 // Listen receives datagrams until ctx is cancelled.
@@ -99,6 +141,10 @@ func (in *Ingester) Listen(ctx context.Context, addr string) error {
 				return nil
 			}
 			in.log.Warn("udp read", "err", err)
+			continue
+		}
+		if !in.allowedSource(from.IP) {
+			in.rejected.Add(1)
 			continue
 		}
 		now := time.Now()
@@ -219,6 +265,7 @@ func (in *Ingester) Stats() Stats {
 		Orphans:  in.orphans.Load(),
 		Events:   in.events.Load(),
 		Leases:   in.leases.Load(),
+		Rejected: in.rejected.Load(),
 		Pending:  pending,
 		Routers:  routers,
 	}

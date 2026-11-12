@@ -3,6 +3,9 @@ services:
     container_name: tikscope
     build: .
     restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [NET_RAW, NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
     ports:
       - "3000:3000"
       - "5354:5354/udp"
@@ -16,6 +19,8 @@ services:
       MIKROTIK_USER: ${MIKROTIK_USER:-}
       MIKROTIK_PASSWORD: ${MIKROTIK_PASSWORD:-}
       MIKROTIK_INSECURE: ${MIKROTIK_INSECURE:-false}
+      # Only accept syslog from the router (recommended).
+      SYSLOG_SOURCES: ${SYSLOG_SOURCES:-}
       # Reachability probes from the container.
       PROBE_ICMP: ${PROBE_ICMP:-1.1.1.1,8.8.8.8}
       PROBE_DNS: ${PROBE_DNS:-}

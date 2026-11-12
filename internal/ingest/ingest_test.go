@@ -20,7 +20,7 @@ func (m *memSink) AddHost(h store.Host)   { m.hosts = append(m.hosts, h) }
 
 func TestCorrelation(t *testing.T) {
 	sink := &memSink{}
-	in := New(sink, slog.Default())
+	in := New(sink, nil, slog.Default())
 	t0 := time.Unix(1_700_000_000, 0)
 
 	in.Handle("10.0.0.1", "dns query from 192.168.88.10: #1 example.com. A", t0)
@@ -78,7 +78,7 @@ func TestCorrelation(t *testing.T) {
 
 func TestReusedIDReleasesOld(t *testing.T) {
 	sink := &memSink{}
-	in := New(sink, slog.Default())
+	in := New(sink, nil, slog.Default())
 	t0 := time.Now()
 	in.Handle("r", "dns query from 10.0.0.2: #7 a.example. A", t0)
 	in.Handle("r", "dns query from 10.0.0.2: #7 b.example. A", t0.Add(time.Millisecond))

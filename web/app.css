@@ -68,8 +68,9 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .num { font-variant-numeric: tabular-nums; }
 button, select, input { font: inherit; color: inherit; }
 select, input[type="search"], input[type="text"] {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 7px 10px; height: 36px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 7px 10px; height: 36px; color-scheme: inherit;
 }
+select, option { background-color: var(--surface); color: var(--text); }
 select:focus-visible, input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn, .icon-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 12px;
@@ -89,7 +90,7 @@ select:focus-visible, input:focus-visible, button:focus-visible, a:focus-visible
 .brand-mark::before { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; background: #fff; border-radius: 50%; }
 .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .refresh { display: flex; align-items: center; height: 36px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 0 4px; }
-.refresh select { border: 0; height: 30px; background: transparent; padding: 0 6px; }
+.refresh select { border: 0; height: 30px; background-color: var(--surface); padding: 0 6px; }
 .refresh .icon-btn { border: 0; width: 30px; height: 30px; background: transparent; }
 .refresh.paused select { color: var(--muted); }
 

@@ -172,6 +172,7 @@ DNS tab fills as soon as the router sends its first query line.
 | --- | --- | --- |
 | `HTTP_ADDR` | `:3000` | Dashboard and API listen address |
 | `SYSLOG_ADDR` | `:5354` | UDP syslog listen address |
+| `SYSLOG_SOURCES` | any | Comma separated addresses or CIDRs allowed to send syslog, e.g. `192.168.88.1` |
 | `DATABASE_PATH` | `./data/tikscope.db` (`/data/tikscope.db` in Docker) | SQLite file |
 | `RETENTION` | `7d` | How long DNS queries are kept |
 | `METRICS_RETENTION` | `30d` | How long samples are kept |
@@ -190,6 +191,20 @@ DNS tab fills as soon as the router sends its first query line.
 | `DNS_SERVER` | system resolver | Resolver for "resolve now" |
 | `LOG_LEVEL` | `info` | `debug` logs every request |
 | `TZ` | `UTC` | Time zone for logs and CSV exports |
+
+## Security notes
+
+- The dashboard has no login. Keep port 3000 on the LAN or put it behind a
+  reverse proxy with authentication; it shows every device's DNS history.
+- Set `SYSLOG_SOURCES` to the router address so forged syslog from other
+  hosts is dropped (UDP has no sender authentication).
+- The API user is read-only and should be pinned to the collector's address
+  (step 3 above). `MIKROTIK_INSECURE=true` disables certificate checks for
+  the router's self-signed certificate; install a real certificate on the
+  router to turn it off.
+- The compose file drops all Linux capabilities except `NET_RAW` (ICMP
+  probes) and `NET_BIND_SERVICE`, and sets `no-new-privileges`.
+- `govulncheck` and `trivy` run clean at release time; `make audit` runs both.
 
 ICMP probes use a raw socket when running as root or with `CAP_NET_RAW`
 (the default in the container) and fall back to the unprivileged datagram
