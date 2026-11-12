@@ -52,25 +52,51 @@ Dark theme:
 
 ![Overview, dark](docs/overview-dark.png)
 
-## Quick start
+## Setup
+
+Four steps: run the collector, point the router's log at it, create a
+read-only API user, verify. Replace `192.168.88.1` (router), `192.168.88.50`
+(collector host) and the subnet with yours.
+
+### 1. Run the collector
+
+Docker Compose:
 
 ```bash
 git clone https://github.com/aganet/tikscope.git
 cd tikscope
-cp .env.example .env    # router credentials, probes, line speed
+cp .env.example .env      # edit MIKROTIK_* and PROBE_* values
 docker compose up -d --build
 ```
 
-The dashboard is on <http://localhost:3000>; syslog is received on UDP 5354.
+Plain Docker, no clone:
 
-Without Docker: `make build && ./tikscope` (needs Go only, no C toolchain).
+```bash
+docker build -t tikscope https://github.com/aganet/tikscope.git
+docker run -d --name tikscope --restart unless-stopped \
+  -p 3000:3000 -p 5354:5354/udp -v $(pwd)/data:/data \
+  -e MIKROTIK_URL=https://192.168.88.1 -e MIKROTIK_USER=tikscope \
+  -e MIKROTIK_PASSWORD=change-me -e MIKROTIK_INSECURE=true \
+  -e PROBE_DNS=192.168.88.1 -e POLL_INTERVAL=1s \
+  tikscope
+```
 
-## Router configuration
+Binary, no Docker (Go 1.25+ only):
 
-Send the DNS log topic, and the rest of the log for events, to the collector:
+```bash
+make build
+set -a; . ./.env; set +a
+./tikscope
+```
+
+Dashboard: <http://localhost:3000>. Syslog: UDP 5354. Data: `./data`.
+
+### 2. Send the router log to the collector
+
+Command line (Winbox or WebFig terminal, or SSH):
 
 ```text
-/system logging action add name=tikscope target=remote remote=<collector-ip> remote-port=5354
+/system logging action add name=tikscope target=remote remote=192.168.88.50 remote-port=5354
 /system logging add topics=dns action=tikscope
 /system logging add topics=info,!dns action=tikscope
 /system logging add topics=warning action=tikscope
@@ -78,30 +104,67 @@ Send the DNS log topic, and the rest of the log for events, to the collector:
 /system logging add topics=critical action=tikscope
 ```
 
-Default, BSD syslog and ISO timestamp formats are all accepted. Do not add the
-`packet` sub topic.
+Winbox / WebFig:
 
-For throughput, health and device names create a read-only API user:
+1. **System > Logging**, tab **Actions**, **+**: Name `tikscope`, Type `remote`, Remote Address `192.168.88.50`, Remote Port `5354`, OK.
+2. Tab **Rules**, **+**: Topics `dns`, Action `tikscope`, OK.
+3. Repeat for `info` (add a second topic `!dns` with the small `-` toggle), `warning`, `error`, `critical`.
+
+Do not add the `packet` sub topic. Default, BSD syslog and ISO timestamp
+formats are all accepted.
+
+### 3. Create the read-only API user
+
+Needed for throughput, speedometers, system health, connections, device
+names, Kid Control bandwidth, Wi-Fi, WireGuard, Netwatch and pools. Skip it
+and you still get DNS, events and probes.
+
+Command line:
 
 ```text
+# HTTPS service with a self-signed certificate (skip the certificate lines if www-ssl already has one)
+/certificate add name=router-ca common-name=router-ca key-usage=key-cert-sign,crl-sign days-valid=3650
+/certificate sign router-ca
+/certificate add name=router-ssl common-name=router.lan key-usage=digital-signature,key-encipherment,tls-server days-valid=3650
+/certificate sign router-ssl ca=router-ca
+/ip service set www-ssl disabled=no certificate=router-ssl
+/ip firewall filter add chain=input protocol=tcp dst-port=443 src-address=192.168.88.0/24 action=accept comment="tikscope API" place-before=0
+
+# read-only group and user; api is required because REST logs in through the API
 /user group add name=tikscope policy=read,api,rest-api,test,!local,!telnet,!ssh,!ftp,!reboot,!write,!policy,!winbox,!password,!web,!sniff,!sensitive,!romon
-/user add name=tikscope group=tikscope password=<password>
-```
+/user add name=tikscope group=tikscope password=change-me address=192.168.88.50/32
 
-REST logs in through the binary API on the user's behalf, so `api` is
-required next to `rest-api` (without it every call fails with
-`not allowed (9)`); `test` covers monitoring reads.
-
-Set `MIKROTIK_URL=https://<router-ip>`, `MIKROTIK_USER`,
-`MIKROTIK_PASSWORD` (plus `MIKROTIK_INSECURE=true` with the default
-self-signed certificate).
-
-Per device bandwidth needs Kid Control, which is free on every RouterOS 7
-license and tracks all LAN devices once one dynamic entry exists:
-
-```text
+# optional: per device bandwidth
 /ip kid-control device add name=all mac-address=00:00:00:00:00:00 dynamic=yes
 ```
+
+Each `certificate sign` prints `progress: done`; wait for it.
+
+Winbox / WebFig:
+
+1. **System > Certificates**, **+**: Name `router-ca`, Common Name `router-ca`, tab **Key Usage**: tick only `crl sign` and `key cert. sign`, **Apply**, **Sign**, **Start**, wait for "done", **Close**.
+2. **+** again: Name `router-ssl`, Common Name `router.lan`, Key Usage: tick only `digital signature`, `key encipherment`, `tls server`, **Apply**, **Sign**, choose CA `router-ca`, **Start**, wait, **Close**.
+3. **IP > Services**, double-click **www-ssl**: untick Disabled, Certificate `router-ssl`, OK.
+4. **IP > Firewall**, tab **Filter Rules**, **+**: Chain `input`, Protocol `tcp`, Dst. Port `443`, Src. Address `192.168.88.0/24`, tab **Action** `accept`, OK, then drag the rule to the top.
+5. **System > Users**, tab **Groups**, **+**: Name `tikscope`, tick only **read**, **api**, **rest-api**, **test**, OK.
+6. Tab **Users**, **+**: Name `tikscope`, Group `tikscope`, Allowed Address `192.168.88.50/32`, Password, OK.
+7. Optional, per device bandwidth: **IP > Kid Control**, tab **Devices**, **+**: Name `all`, MAC Address `00:00:00:00:00:00`, tick **Dynamic**, OK.
+
+### 4. Verify
+
+From the collector host:
+
+```bash
+curl -k -u tikscope:change-me https://192.168.88.1/rest/system/identity
+```
+
+must print `{"name":"..."}`. `401` means wrong password, missing `rest-api`
+or the user's address restriction; `500 not allowed` means the group lacks
+`api`; a TLS handshake error means `www-ssl` has no certificate.
+
+Then open the dashboard: the header shows the router name within 15 s, the
+System tab shows the collector counters and the router snapshot, and the
+DNS tab fills as soon as the router sends its first query line.
 
 ## Configuration
 
