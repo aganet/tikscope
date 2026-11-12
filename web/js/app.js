@@ -8,6 +8,7 @@ import { devices } from "./views/devices.js";
 import { events } from "./views/events.js";
 import { system } from "./views/system.js";
 import { openDrawer, closeDrawer, drawerOpen } from "./drawer.js";
+import { api } from "./api.js";
 
 const views = { overview, dns, network, devices, events, system };
 
@@ -125,7 +126,21 @@ window.addEventListener("hashchange", () => {
   if (!current || current.name !== tab || !params.toString()) render();
 });
 
+// The header names the router the page is showing, so a demo instance and a
+// live one are never confused.
+async function showRouter() {
+  try {
+    const s = await api.status();
+    const r = s.router;
+    const el = document.getElementById("router-name");
+    el.textContent = r && r.identity ? `${r.identity} (${r.board}, RouterOS ${r.version}), ` : "no router configured, ";
+    document.title = r && r.identity ? `tikscope: ${r.identity}` : "tikscope";
+  } catch { /* status is retried on the next refresh */ }
+}
+
 setupControls();
+showRouter();
+setInterval(showRouter, 60000);
 render("initial");
 schedule();
 const { params } = readLocation();
