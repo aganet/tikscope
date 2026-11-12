@@ -1,0 +1,495 @@
+package routeros
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"sort"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/aganet/tikscope/internal/store"
+)
+
+// Metric names written by the poller.
+const (
+	MetricIfaceRx       = "iface.rx_bps"
+	MetricIfaceTx       = "iface.tx_bps"
+	MetricIfaceErrors   = "iface.errors" // rx+tx errors and drops per interval
+	MetricIfaceLinkDown = "iface.link_downs"
+	MetricDeviceRx      = "dev.rx_bps"
+	MetricDeviceTx      = "dev.tx_bps"
+	MetricCPU           = "sys.cpu"
+	MetricMemUsed       = "sys.mem_used_pct"
+	MetricConnections   = "sys.connections"
+	MetricTemperature   = "sys.temperature"
+	MetricVoltage       = "sys.voltage"
+	MetricWifiSignal    = "wifi.signal"
+)
+
+// Interface is the latest view of one router interface.
+type Interface struct {
+	Name      string  `json:"name"`
+	Type      string  `json:"type"`
+	Comment   string  `json:"comment,omitempty"`
+	MAC       string  `json:"mac,omitempty"`
+	Running   bool    `json:"running"`
+	Disabled  bool    `json:"disabled"`
+	WAN       bool    `json:"wan"`
+	RxBps     float64 `json:"rx_bps"`
+	TxBps     float64 `json:"tx_bps"`
+	RxBytes   int64   `json:"rx_bytes"`
+	TxBytes   int64   `json:"tx_bytes"`
+	Errors    int64   `json:"errors"`
+	LinkDowns int64   `json:"link_downs"`
+	LastLink  string  `json:"last_link_up,omitempty"`
+}
+
+type WifiClient struct {
+	MAC       string `json:"mac"`
+	Interface string `json:"interface"`
+	SignalDBm int64  `json:"signal_dbm"`
+	TxRate    string `json:"tx_rate,omitempty"`
+	RxRate    string `json:"rx_rate,omitempty"`
+	Uptime    string `json:"uptime,omitempty"`
+}
+
+type Adlist struct {
+	URL     string `json:"url"`
+	Matches int64  `json:"matches"`
+	Names   int64  `json:"names"`
+}
+
+// Snapshot is the latest state read from the router.
+type Snapshot struct {
+	UpdatedAt   int64        `json:"updated_at"`
+	Error       string       `json:"error,omitempty"`
+	Identity    string       `json:"identity"`
+	Version     string       `json:"version"`
+	Board       string       `json:"board"`
+	Uptime      string       `json:"uptime"`
+	CPULoad     int64        `json:"cpu_load"`
+	FreeMemory  int64        `json:"free_memory"`
+	TotalMemory int64        `json:"total_memory"`
+	FreeHDD     int64        `json:"free_hdd"`
+	TotalHDD    int64        `json:"total_hdd"`
+	Temperature *int64       `json:"temperature,omitempty"`
+	Voltage     *float64     `json:"voltage,omitempty"`
+	Connections int64        `json:"connections"`
+	MaxConns    int64        `json:"max_connections"`
+	DNSServers  string       `json:"dns_servers"`
+	DNSDynamic  string       `json:"dns_dynamic_servers"`
+	CacheUsed   int64        `json:"cache_used_kib"`
+	CacheSize   int64        `json:"cache_size_kib"`
+	Adlists     []Adlist     `json:"adlists"`
+	Interfaces  []Interface  `json:"interfaces"`
+	WAN         string       `json:"wan"`
+	WifiClients []WifiClient `json:"wifi_clients"`
+	Leases      int          `json:"leases"`
+	Hosts       int          `json:"hosts"`
+	KidControl  bool         `json:"kid_control"`
+}
+
+type counters struct {
+	at    time.Time
+	rx    int64
+	tx    int64
+	errs  int64
+	downs int64
+}
+
+// Poller samples the router on an interval and keeps the latest snapshot.
+type Poller struct {
+	client   *Client
+	store    *store.Store
+	interval time.Duration
+	wanHint  string
+	log      *slog.Logger
+
+	snapshot atomic.Pointer[Snapshot]
+	ifaces   map[string]counters
+	devices  map[string]counters
+}
+
+func NewPoller(client *Client, st *store.Store, interval time.Duration, wanHint string, log *slog.Logger) *Poller {
+	return &Poller{client: client, store: st, interval: interval, wanHint: wanHint, log: log,
+		ifaces: map[string]counters{}, devices: map[string]counters{}}
+}
+
+func (p *Poller) Snapshot() *Snapshot { return p.snapshot.Load() }
+
+func (p *Poller) Run(ctx context.Context) {
+	t := time.NewTicker(p.interval)
+	defer t.Stop()
+	for {
+		p.poll(ctx)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (p *Poller) poll(ctx context.Context) {
+	now := time.Now()
+	snap := Snapshot{UpdatedAt: now.Unix()}
+	var errs []error
+	for _, step := range []func(context.Context, *Snapshot, time.Time) error{
+		p.pollSystem, p.pollInterfaces, p.pollConnections, p.pollHosts, p.pollDNS, p.pollDevices, p.pollWifi,
+	} {
+		if err := step(ctx, &snap, now); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		err := errors.Join(errs...)
+		snap.Error = err.Error()
+		p.log.Warn("router poll", "err", err)
+	}
+	p.snapshot.Store(&snap)
+}
+
+func (p *Poller) sample(now time.Time, metric, key string, v float64) {
+	p.store.AddSample(store.Sample{TS: now, Metric: metric, Key: key, Value: v})
+}
+
+func (p *Poller) pollSystem(ctx context.Context, snap *Snapshot, now time.Time) error {
+	var identity struct {
+		Name string `json:"name"`
+	}
+	if err := p.client.Get(ctx, "/system/identity", &identity); err != nil {
+		return err
+	}
+	snap.Identity = identity.Name
+
+	var res struct {
+		Version     string `json:"version"`
+		Board       string `json:"board-name"`
+		Uptime      string `json:"uptime"`
+		CPULoad     string `json:"cpu-load"`
+		FreeMemory  string `json:"free-memory"`
+		TotalMemory string `json:"total-memory"`
+		FreeHDD     string `json:"free-hdd-space"`
+		TotalHDD    string `json:"total-hdd-space"`
+	}
+	if err := p.client.Get(ctx, "/system/resource", &res); err != nil {
+		return err
+	}
+	snap.Version, snap.Board, snap.Uptime = res.Version, res.Board, res.Uptime
+	snap.CPULoad = atoi(res.CPULoad)
+	snap.FreeMemory, snap.TotalMemory = atoi(res.FreeMemory), atoi(res.TotalMemory)
+	snap.FreeHDD, snap.TotalHDD = atoi(res.FreeHDD), atoi(res.TotalHDD)
+	p.sample(now, MetricCPU, "router", float64(snap.CPULoad))
+	if snap.TotalMemory > 0 {
+		p.sample(now, MetricMemUsed, "router", 100*float64(snap.TotalMemory-snap.FreeMemory)/float64(snap.TotalMemory))
+	}
+
+	// Health exists on boards with sensors only; the shape differs between
+	// RouterOS 6 (one object) and 7 (a list of name/value rows).
+	var health []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	}
+	if err := p.client.Get(ctx, "/system/health", &health); err == nil {
+		for _, h := range health {
+			switch h.Name {
+			case "temperature", "cpu-temperature", "board-temperature1":
+				if snap.Temperature == nil {
+					t := atoi(h.Value)
+					snap.Temperature = &t
+					p.sample(now, MetricTemperature, "router", float64(t))
+				}
+			case "voltage":
+				if v, ok := parseFloat(h.Value); ok {
+					snap.Voltage = &v
+					p.sample(now, MetricVoltage, "router", v)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (p *Poller) pollInterfaces(ctx context.Context, snap *Snapshot, now time.Time) error {
+	var list []struct {
+		Name      string `json:"name"`
+		Type      string `json:"type"`
+		Comment   string `json:"comment"`
+		MAC       string `json:"mac-address"`
+		Running   string `json:"running"`
+		Disabled  string `json:"disabled"`
+		RxByte    string `json:"rx-byte"`
+		TxByte    string `json:"tx-byte"`
+		RxError   string `json:"rx-error"`
+		TxError   string `json:"tx-error"`
+		RxDrop    string `json:"rx-drop"`
+		TxDrop    string `json:"tx-drop"`
+		LinkDowns string `json:"link-downs"`
+		LastUp    string `json:"last-link-up-time"`
+	}
+	if err := p.client.Get(ctx, "/interface", &list); err != nil {
+		return err
+	}
+	wan := p.detectWAN(ctx)
+	seen := map[string]bool{}
+	for _, i := range list {
+		seen[i.Name] = true
+		cur := counters{at: now, rx: atoi(i.RxByte), tx: atoi(i.TxByte),
+			errs: atoi(i.RxError) + atoi(i.TxError) + atoi(i.RxDrop) + atoi(i.TxDrop), downs: atoi(i.LinkDowns)}
+		iface := Interface{Name: i.Name, Type: i.Type, Comment: i.Comment, MAC: i.MAC, Running: isTrue(i.Running),
+			Disabled: isTrue(i.Disabled), WAN: i.Name == wan, RxBytes: cur.rx, TxBytes: cur.tx, Errors: cur.errs,
+			LinkDowns: cur.downs, LastLink: i.LastUp}
+		if prev, ok := p.ifaces[i.Name]; ok {
+			secs := now.Sub(prev.at).Seconds()
+			// Counters reset on reboot; skip the interval instead of
+			// recording a huge negative rate.
+			if secs > 0 && cur.rx >= prev.rx && cur.tx >= prev.tx {
+				iface.RxBps = float64(cur.rx-prev.rx) * 8 / secs
+				iface.TxBps = float64(cur.tx-prev.tx) * 8 / secs
+				if iface.Running || iface.RxBps > 0 || iface.TxBps > 0 {
+					p.sample(now, MetricIfaceRx, i.Name, iface.RxBps)
+					p.sample(now, MetricIfaceTx, i.Name, iface.TxBps)
+				}
+				if d := cur.errs - prev.errs; d > 0 {
+					p.sample(now, MetricIfaceErrors, i.Name, float64(d))
+				}
+				if d := cur.downs - prev.downs; d > 0 {
+					p.sample(now, MetricIfaceLinkDown, i.Name, float64(d))
+				}
+			}
+		}
+		p.ifaces[i.Name] = cur
+		snap.Interfaces = append(snap.Interfaces, iface)
+	}
+	for name := range p.ifaces {
+		if !seen[name] {
+			delete(p.ifaces, name)
+		}
+	}
+	sort.Slice(snap.Interfaces, func(a, b int) bool {
+		if snap.Interfaces[a].WAN != snap.Interfaces[b].WAN {
+			return snap.Interfaces[a].WAN
+		}
+		return snap.Interfaces[a].Name < snap.Interfaces[b].Name
+	})
+	snap.WAN = wan
+	return nil
+}
+
+// detectWAN returns the interface behind the active default route, or the
+// configured hint.
+func (p *Poller) detectWAN(ctx context.Context) string {
+	if p.wanHint != "" {
+		return p.wanHint
+	}
+	var routes []struct {
+		Gateway     string `json:"gateway"`
+		ImmediateGW string `json:"immediate-gw"`
+		Active      string `json:"active"`
+	}
+	if err := p.client.Get(ctx, "/ip/route?dst-address=0.0.0.0/0", &routes); err != nil {
+		return ""
+	}
+	for _, r := range routes {
+		if !isTrue(r.Active) {
+			continue
+		}
+		for _, gw := range []string{r.ImmediateGW, r.Gateway} {
+			if i := strings.LastIndexByte(gw, '%'); i >= 0 {
+				return gw[i+1:]
+			}
+			if gw != "" && !strings.ContainsAny(gw, ".:") {
+				return gw
+			}
+		}
+	}
+	return ""
+}
+
+func (p *Poller) pollConnections(ctx context.Context, snap *Snapshot, now time.Time) error {
+	var tracking struct {
+		Total string `json:"total-entries"`
+		Max   string `json:"max-entries"`
+	}
+	if err := p.client.Get(ctx, "/ip/firewall/connection/tracking", &tracking); err != nil {
+		var nf NotFound
+		if errors.As(err, &nf) {
+			return nil
+		}
+		return err
+	}
+	snap.Connections, snap.MaxConns = atoi(tracking.Total), atoi(tracking.Max)
+	p.sample(now, MetricConnections, "router", float64(snap.Connections))
+	return nil
+}
+
+func (p *Poller) pollHosts(ctx context.Context, snap *Snapshot, now time.Time) error {
+	var leases []struct {
+		Address string `json:"address"`
+		MAC     string `json:"mac-address"`
+		Host    string `json:"host-name"`
+		Comment string `json:"comment"`
+	}
+	if err := p.client.Get(ctx, "/ip/dhcp-server/lease", &leases); err != nil {
+		return err
+	}
+	var hosts []store.Host
+	for _, l := range leases {
+		if l.Address == "" || l.MAC == "" {
+			continue
+		}
+		name := l.Comment
+		if name == "" {
+			name = l.Host
+		}
+		hosts = append(hosts, store.Host{IP: l.Address, MAC: strings.ToUpper(l.MAC), Name: name, Source: "dhcp"})
+	}
+	snap.Leases = len(hosts)
+
+	var neighbours []struct {
+		Address string `json:"address"`
+		MAC     string `json:"mac-address"`
+	}
+	if err := p.client.Get(ctx, "/ip/arp", &neighbours); err != nil {
+		return err
+	}
+	for _, n := range neighbours {
+		if n.Address != "" && n.MAC != "" {
+			hosts = append(hosts, store.Host{IP: n.Address, MAC: strings.ToUpper(n.MAC), Source: "arp"})
+		}
+	}
+	neighbours = neighbours[:0]
+	if err := p.client.Get(ctx, "/ipv6/neighbor", &neighbours); err != nil {
+		var nf NotFound
+		if !errors.As(err, &nf) {
+			return err
+		}
+	}
+	for _, n := range neighbours {
+		if n.Address != "" && n.MAC != "" {
+			hosts = append(hosts, store.Host{IP: n.Address, MAC: strings.ToUpper(n.MAC), Source: "nd"})
+		}
+	}
+	snap.Hosts = len(hosts)
+	for _, h := range hosts {
+		p.store.AddHost(h)
+	}
+	return nil
+}
+
+func (p *Poller) pollDNS(ctx context.Context, snap *Snapshot, _ time.Time) error {
+	var dns struct {
+		Servers   string `json:"servers"`
+		Dynamic   string `json:"dynamic-servers"`
+		CacheUsed string `json:"cache-used"`
+		CacheSize string `json:"cache-size"`
+	}
+	if err := p.client.Get(ctx, "/ip/dns", &dns); err != nil {
+		return err
+	}
+	snap.DNSServers, snap.DNSDynamic = dns.Servers, dns.Dynamic
+	snap.CacheUsed, snap.CacheSize = atoi(dns.CacheUsed), atoi(dns.CacheSize)
+
+	var adlists []struct {
+		URL     string `json:"url"`
+		Matches string `json:"match-count"`
+		Names   string `json:"name-count"`
+	}
+	snap.Adlists = []Adlist{}
+	if err := p.client.Get(ctx, "/ip/dns/adlist", &adlists); err == nil {
+		for _, a := range adlists {
+			snap.Adlists = append(snap.Adlists, Adlist{URL: a.URL, Matches: atoi(a.Matches), Names: atoi(a.Names)})
+		}
+	}
+	return nil
+}
+
+// pollDevices reads per-device byte counters from Kid Control, which tracks
+// every LAN device once the feature is enabled.
+func (p *Poller) pollDevices(ctx context.Context, snap *Snapshot, now time.Time) error {
+	var devices []struct {
+		Name      string `json:"name"`
+		MAC       string `json:"mac-address"`
+		IP        string `json:"ip-address"`
+		BytesUp   string `json:"bytes-up"`
+		BytesDown string `json:"bytes-down"`
+		Disabled  string `json:"disabled"`
+	}
+	if err := p.client.Get(ctx, "/ip/kid-control/device", &devices); err != nil {
+		var nf NotFound
+		if errors.As(err, &nf) {
+			return nil
+		}
+		return err
+	}
+	snap.KidControl = true
+	seen := map[string]bool{}
+	for _, d := range devices {
+		key := d.IP
+		if key == "" {
+			key = strings.ToUpper(d.MAC)
+		}
+		if key == "" || isTrue(d.Disabled) {
+			continue
+		}
+		seen[key] = true
+		cur := counters{at: now, rx: atoi(d.BytesDown), tx: atoi(d.BytesUp)}
+		if prev, ok := p.devices[key]; ok {
+			secs := now.Sub(prev.at).Seconds()
+			if secs > 0 && cur.rx >= prev.rx && cur.tx >= prev.tx {
+				p.sample(now, MetricDeviceRx, key, float64(cur.rx-prev.rx)*8/secs)
+				p.sample(now, MetricDeviceTx, key, float64(cur.tx-prev.tx)*8/secs)
+			}
+		}
+		p.devices[key] = cur
+		if d.IP != "" && d.MAC != "" {
+			p.store.AddHost(store.Host{IP: d.IP, MAC: strings.ToUpper(d.MAC), Name: d.Name, Source: "kid-control"})
+		}
+	}
+	for key := range p.devices {
+		if !seen[key] {
+			delete(p.devices, key)
+		}
+	}
+	return nil
+}
+
+func (p *Poller) pollWifi(ctx context.Context, snap *Snapshot, now time.Time) error {
+	var regs []struct {
+		MAC       string `json:"mac-address"`
+		Interface string `json:"interface"`
+		Signal    string `json:"signal"`          // wifi (7.13+): "-55"
+		SignalStr string `json:"signal-strength"` // wireless: "-55dBm@6Mbps"
+		TxRate    string `json:"tx-rate"`
+		RxRate    string `json:"rx-rate"`
+		Uptime    string `json:"uptime"`
+	}
+	snap.WifiClients = []WifiClient{}
+	found := false
+	for _, path := range []string{"/interface/wifi/registration-table", "/interface/wireless/registration-table"} {
+		if err := p.client.Get(ctx, path, &regs); err == nil {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	for _, r := range regs {
+		if r.MAC == "" {
+			continue
+		}
+		signal := r.Signal
+		if signal == "" {
+			signal = r.SignalStr
+		}
+		c := WifiClient{MAC: strings.ToUpper(r.MAC), Interface: r.Interface, SignalDBm: atoi(signal), TxRate: r.TxRate, RxRate: r.RxRate, Uptime: r.Uptime}
+		snap.WifiClients = append(snap.WifiClients, c)
+		if c.SignalDBm != 0 {
+			p.sample(now, MetricWifiSignal, c.MAC, float64(c.SignalDBm))
+		}
+	}
+	return nil
+}

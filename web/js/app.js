@@ -1,0 +1,135 @@
+// Entry point: global controls, hash routing, polling and the drawer.
+import { h, icon, replace, clear } from "./dom.js";
+import { hideTooltip } from "./charts.js";
+import { overview } from "./views/overview.js";
+import { dns } from "./views/dns.js";
+import { network } from "./views/network.js";
+import { devices } from "./views/devices.js";
+import { events } from "./views/events.js";
+import { system } from "./views/system.js";
+import { openDrawer, closeDrawer, drawerOpen } from "./drawer.js";
+
+const views = { overview, dns, network, devices, events, system };
+
+export const state = {
+  range: "24h",
+  autoRefresh: true,
+  interval: 10,
+  tab: "overview",
+  // Per-view state (filters, pages) survives refreshes and tab switches.
+  views: {},
+};
+
+const main = document.getElementById("main");
+let current = null; // {name, ctrl}
+let timer = null;
+
+function readLocation() {
+  const hash = location.hash.slice(1);
+  const [tab, qs] = hash.split("?");
+  const params = new URLSearchParams(qs || "");
+  return { tab: views[tab] ? tab : "overview", params };
+}
+
+export function navigate(tab, params) {
+  const qs = params ? new URLSearchParams(params).toString() : "";
+  location.hash = tab + (qs ? `?${qs}` : "");
+}
+
+async function render(reason = "refresh") {
+  const { tab } = readLocation();
+  if (current && current.name !== tab && current.ctrl) current.ctrl.abort();
+  const ctrl = new AbortController();
+  current = { name: tab, ctrl };
+  state.tab = tab;
+  for (const a of document.querySelectorAll("#tabs a")) a.classList.toggle("active", a.dataset.tab === tab);
+  main.classList.add("loading");
+  try {
+    const view = views[tab];
+    const data = await view.load(state, ctrl.signal);
+    if (ctrl.signal.aborted) return;
+    hideTooltip();
+    replace(main, view.render(data, state, { navigate, openDrawer }));
+    document.getElementById("updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    main.dataset.lastData = "1";
+    if (drawerOpen()) openDrawer(null, state, { refresh: true });
+  } catch (err) {
+    if (ctrl.signal.aborted) return;
+    if (reason === "initial" || !main.dataset.lastData) replace(main, h("div", { class: "error-banner" }, `Could not load data: ${err.message}`));
+    document.getElementById("updated").textContent = `Error: ${err.message}`;
+  } finally {
+    if (!ctrl.signal.aborted) main.classList.remove("loading");
+  }
+}
+
+function schedule() {
+  clearInterval(timer);
+  timer = null;
+  if (!state.autoRefresh) return;
+  timer = setInterval(() => { if (document.visibilityState === "visible") render(); }, state.interval * 1000);
+}
+
+function applyTheme(theme) {
+  if (theme) document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+  const dark = theme === "dark" || (!theme && matchMedia("(prefers-color-scheme: dark)").matches);
+  replace(document.getElementById("theme"), icon(dark ? "sun" : "moon"));
+}
+
+function setupControls() {
+  const range = document.getElementById("range");
+  const interval = document.getElementById("interval");
+  const pause = document.getElementById("pause");
+  const box = document.getElementById("refresh-box");
+  try {
+    state.range = localStorage.getItem("tikscope.range") || state.range;
+    state.interval = Number(localStorage.getItem("tikscope.interval")) || state.interval;
+    applyTheme(localStorage.getItem("tikscope.theme") || "");
+  } catch { applyTheme(""); }
+  range.value = state.range;
+  interval.value = String(state.interval);
+  const paintPause = () => {
+    replace(pause, icon(state.autoRefresh ? "pause" : "play"));
+    pause.title = state.autoRefresh ? "Pause auto refresh" : "Resume auto refresh";
+    box.classList.toggle("paused", !state.autoRefresh);
+  };
+  paintPause();
+  range.addEventListener("change", () => { state.range = range.value; try { localStorage.setItem("tikscope.range", state.range); } catch {} render(); });
+  interval.addEventListener("change", () => { state.interval = Number(interval.value); try { localStorage.setItem("tikscope.interval", state.interval); } catch {} schedule(); });
+  pause.addEventListener("click", () => { state.autoRefresh = !state.autoRefresh; paintPause(); schedule(); });
+  const refresh = document.getElementById("refresh");
+  replace(refresh, icon("refresh"));
+  refresh.addEventListener("click", () => render());
+  document.getElementById("theme").addEventListener("click", () => {
+    const cur = document.documentElement.dataset.theme;
+    const dark = cur === "dark" || (!cur && matchMedia("(prefers-color-scheme: dark)").matches);
+    const next = dark ? "light" : "dark";
+    try { localStorage.setItem("tikscope.theme", next); } catch {}
+    applyTheme(next);
+  });
+  replace(document.getElementById("drawer-close"), icon("x"));
+  document.getElementById("drawer-close").addEventListener("click", closeDrawer);
+  document.getElementById("drawer-backdrop").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+}
+
+// Re-render is cheap and charts size themselves from their container, so a
+// resize just draws the current view again.
+let resizeTimer;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => render(), 200); });
+window.addEventListener("hashchange", () => {
+  const { tab, params } = readLocation();
+  if (params.get("client")) openDrawer({ kind: "client", key: params.get("client") }, state);
+  else if (params.get("domain")) openDrawer({ kind: "domain", key: params.get("domain") }, state);
+  else if (params.get("interface")) openDrawer({ kind: "interface", key: params.get("interface") }, state);
+  if (!current || current.name !== tab || !params.toString()) render();
+});
+
+setupControls();
+render("initial");
+schedule();
+const { params } = readLocation();
+if (params.get("client")) openDrawer({ kind: "client", key: params.get("client") }, state);
+else if (params.get("domain")) openDrawer({ kind: "domain", key: params.get("domain") }, state);
+else if (params.get("interface")) openDrawer({ kind: "interface", key: params.get("interface") }, state);
+clear(document.getElementById("toast"));

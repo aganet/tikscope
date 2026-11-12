@@ -1,0 +1,10 @@
+/tikscope
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.log
+.env
+.vscode/
+.idea/
+.DS_Store
