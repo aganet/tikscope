@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 // Each entry upgrades the database from the previous version. Entry 0 is
 // the initial schema.
@@ -52,6 +52,25 @@ var migrations = [...][]string{
 			severity TEXT NOT NULL,
 			message TEXT NOT NULL)`,
 		`CREATE INDEX events_ts ON events(ts, severity)`,
+	},
+	{
+		`CREATE TABLE users (
+			id INTEGER PRIMARY KEY,
+			username TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			created INTEGER NOT NULL,
+			password_changed INTEGER NOT NULL)`,
+		// Only a SHA-256 of the session token is stored, so a copy of the
+		// database does not grant access.
+		`CREATE TABLE sessions (
+			token_hash BLOB PRIMARY KEY,
+			user_id INTEGER NOT NULL,
+			created INTEGER NOT NULL,
+			expires INTEGER NOT NULL,
+			last_seen INTEGER NOT NULL,
+			ip TEXT NOT NULL DEFAULT '',
+			agent TEXT NOT NULL DEFAULT '')`,
+		`CREATE INDEX sessions_user ON sessions(user_id)`,
 	},
 }
 

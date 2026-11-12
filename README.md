@@ -168,9 +168,24 @@ must print `{"name":"..."}`. `401` means wrong password, missing `rest-api`
 or the user's address restriction; `500 not allowed` means the group lacks
 `api`; a TLS handshake error means `www-ssl` has no certificate.
 
-Then open the dashboard: the header shows the router name within 15 s, the
-System tab shows the collector counters and the router snapshot, and the
-DNS tab fills as soon as the router sends its first query line.
+Then open the dashboard. On the first visit it asks you to create the
+account: pick a username, a password of at least 12 characters, and paste
+the setup token from the collector log:
+
+```bash
+docker compose logs tikscope | grep setup_token
+```
+
+After that the header shows the router name within 15 s, the System tab
+shows the collector counters and the router snapshot, and the DNS tab fills
+as soon as the router sends its first query line.
+
+Forgot the password? Set a new one from the server (works while the
+collector is running, signs out that user everywhere):
+
+```bash
+echo -n 'a new long passphrase' | docker compose exec -T tikscope tikscope set-password admin
+```
 
 ## Configuration
 
@@ -179,6 +194,7 @@ DNS tab fills as soon as the router sends its first query line.
 | `HTTP_ADDR` | `:3000` | Dashboard and API listen address |
 | `SYSLOG_ADDR` | `:5354` | UDP syslog listen address |
 | `SYSLOG_SOURCES` | any | Comma separated addresses or CIDRs allowed to send syslog, e.g. `192.168.88.1` |
+| `SETUP_TOKEN` | random, printed in the log | Token required by the account creation page while no account exists |
 | `DATABASE_PATH` | `./data/tikscope.db` (`/data/tikscope.db` in Docker) | SQLite file |
 | `RETENTION` | `7d` | How long DNS queries are kept |
 | `METRICS_RETENTION` | `30d` | How long samples are kept |
@@ -200,8 +216,27 @@ DNS tab fills as soon as the router sends its first query line.
 
 ## Security notes
 
-- The dashboard has no login. Keep port 3000 on the LAN or put it behind a
-  reverse proxy with authentication; it shows every device's DNS history.
+- The dashboard requires a login. The first visitor creates the account
+  with the setup token from the log; after that registration is closed and
+  further accounts are only added with `tikscope set-password`.
+- Passwords are hashed with Argon2id (64 MiB, 3 passes, 4 lanes, random
+  16-byte salt). Hashes record their parameters, so stronger settings in a
+  future version are applied on the next login.
+- Sessions are 32 random bytes in an `HttpOnly`, `SameSite=Strict` cookie
+  (`Secure` when served over TLS or behind an `X-Forwarded-Proto: https`
+  proxy). Only the SHA-256 of the token is stored, so a copy of the database
+  does not grant access. Sessions last 30 days, expire after 7 idle days and
+  are revoked on logout and on password change.
+- Login is throttled per client address and per username: after 5 failures
+  the next attempt waits 30 s, doubling up to 1 h. Unknown usernames take as
+  long to reject as wrong passwords.
+- State-changing requests must come from the same origin (fetch metadata and
+  `Origin` are checked) with a JSON body, which browsers cannot send
+  cross-site without CORS; combined with the strict cookie that covers CSRF.
+- Pages are served with a strict Content Security Policy (no inline or
+  remote scripts), `X-Frame-Options: DENY` and `nosniff`.
+- The login still travels in clear text on plain HTTP. On anything but a
+  trusted LAN put the dashboard behind a TLS reverse proxy.
 - Set `SYSLOG_SOURCES` to the router address so forged syslog from other
   hosts is dropped (UDP has no sender authentication).
 - The API user is read-only and should be pinned to the collector's address
@@ -219,7 +254,8 @@ group.
 
 ## API
 
-All endpoints take `range` (`1h`, `6h`, `24h`, `7d`, `30d`; default `24h`).
+All endpoints except `/healthz` and `/api/auth/*` need the session cookie
+and take `range` (`1h`, `6h`, `24h`, `7d`, `30d`; default `24h`).
 
 | Endpoint | Returns |
 | --- | --- |
@@ -236,7 +272,11 @@ All endpoints take `range` (`1h`, `6h`, `24h`, `7d`, `30d`; default `24h`).
 | `GET /api/events?severity=&search=&page=&page_size=` | router log |
 | `GET /api/issues` | current issues |
 | `GET /api/status` | collector counters, router snapshot, probe state |
-| `GET /healthz` | liveness |
+| `GET /healthz` | liveness, no login needed |
+| `GET /api/auth/status` | whether an account exists and whether the caller is signed in |
+| `POST /api/auth/setup` | create the first account (`username`, `password`, `token`) |
+| `POST /api/auth/login`, `POST /api/auth/logout` | start and end a session |
+| `POST /api/auth/password` | change the password (`current`, `new`) |
 
 Metric names: `iface.rx_bps`, `iface.tx_bps`, `iface.errors`,
 `iface.link_downs`, `dev.rx_bps`, `dev.tx_bps`, `sys.cpu`,
@@ -250,6 +290,7 @@ Metric names: `iface.rx_bps`, `iface.tx_bps`, `iface.errors`,
 make test     # go vet, go test -race, JS syntax check
 make build    # static binary with the UI embedded
 ./tikscope    # http://localhost:3000, syslog on :5354, data in ./data
+./tikscope set-password admin   # new password on stdin; creates the user if needed
 ```
 
 Feed test lines without a router:

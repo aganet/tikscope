@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aganet/tikscope/internal/auth"
 	"github.com/aganet/tikscope/internal/ingest"
 	"github.com/aganet/tikscope/internal/issues"
 	"github.com/aganet/tikscope/internal/probe"
@@ -33,6 +34,7 @@ const (
 // Deps are the runtime components the handlers read from.
 type Deps struct {
 	Store     *store.Store
+	Auth      *auth.Service
 	Ingest    *ingest.Ingester
 	Poller    *routeros.Poller // nil when the REST API is not configured
 	Prober    *probe.Prober
@@ -73,8 +75,9 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /api/status", a.status)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { httpError(w, "not found", http.StatusNotFound) })
+	a.Auth.Routes(mux)
 	mux.Handle("/", staticHandler(a.Web))
-	return a.logRequests(mux)
+	return a.logRequests(secureHeaders(a.Auth.Protect(mux)))
 }
 
 func (a *API) logRequests(next http.Handler) http.Handler {
@@ -87,13 +90,32 @@ func (a *API) logRequests(next http.Handler) http.Handler {
 	})
 }
 
+// secureHeaders locks the pages to their own origin: no inline or remote
+// scripts, no framing, no API caching.
+func secureHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "same-origin")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			h.Set("Cache-Control", "no-store")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // staticHandler serves the embedded dashboard. Files are served directly
 // rather than through http.FileServer, whose index.html redirect would loop.
 func staticHandler(web fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, "/")
-		if name == "" {
+		switch name {
+		case "":
 			name = "index.html"
+		case "login":
+			name = "login.html"
 		}
 		f, err := web.Open(name)
 		if err != nil {
@@ -106,7 +128,7 @@ func staticHandler(web fs.FS) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		if name == "index.html" {
+		if strings.HasSuffix(name, ".html") {
 			w.Header().Set("Cache-Control", "no-cache")
 		} else {
 			w.Header().Set("Cache-Control", "public, max-age=3600")

@@ -7,6 +7,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/aganet/tikscope/internal/api"
+	"github.com/aganet/tikscope/internal/auth"
 	"github.com/aganet/tikscope/internal/ingest"
 	"github.com/aganet/tikscope/internal/probe"
 	"github.com/aganet/tikscope/internal/routeros"
@@ -39,6 +41,7 @@ type config struct {
 	retention    store.Retention
 	dnsServer    string
 	logLevel     slog.Level
+	setupToken   string
 
 	mikrotikURL      string
 	mikrotikUser     string
@@ -83,6 +86,7 @@ func loadConfig() (config, error) {
 		mikrotikURL:  strings.TrimRight(os.Getenv("MIKROTIK_URL"), "/"),
 		mikrotikUser: os.Getenv("MIKROTIK_USER"),
 		wanInterface: os.Getenv("WAN_INTERFACE"),
+		setupToken:   strings.TrimSpace(os.Getenv("SETUP_TOKEN")),
 	}
 	cfg.mikrotikPassword = os.Getenv("MIKROTIK_PASSWORD")
 	var err error
@@ -176,9 +180,54 @@ func main() {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.logLevel}))
 	slog.SetDefault(log)
+	if len(os.Args) > 1 {
+		if err := command(cfg, os.Args[1:], log); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(cfg, log); err != nil {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
+	}
+}
+
+// command runs a maintenance subcommand against the database. It works
+// while the collector is running (SQLite WAL allows a second writer).
+func command(cfg config, args []string, log *slog.Logger) error {
+	switch args[0] {
+	case "set-password":
+		if len(args) != 2 {
+			return errors.New("usage: tikscope set-password <username>  (new password on stdin)")
+		}
+		username, err := auth.NormalizeUsername(args[1])
+		if err != nil {
+			return err
+		}
+		raw, err := io.ReadAll(io.LimitReader(os.Stdin, auth.MaxPasswordLen+2))
+		if err != nil {
+			return err
+		}
+		password := strings.TrimRight(string(raw), "\r\n")
+		if err := auth.CheckPassword(username, password); err != nil {
+			return err
+		}
+		st, err := store.Open(cfg.databasePath, log)
+		if err != nil {
+			return fmt.Errorf("open database: %w", err)
+		}
+		defer st.Close()
+		if err := st.UpsertUser(context.Background(), username, auth.HashPassword(password)); err != nil {
+			return err
+		}
+		fmt.Printf("password set for %s, all sessions of this user signed out\n", username)
+		return nil
+	case "version":
+		fmt.Println(version)
+		return nil
+	default:
+		return fmt.Errorf("unknown command %q (available: set-password, version)", args[0])
 	}
 }
 
@@ -196,6 +245,20 @@ func run(cfg config, log *slog.Logger) error {
 	}
 	defer st.Close()
 	log.Info("database ready", "path", cfg.databasePath, "version", version)
+
+	users, err := st.UserCount(ctx)
+	if err != nil {
+		return err
+	}
+	setupToken := cfg.setupToken
+	if setupToken == "" {
+		setupToken = auth.NewSetupToken()
+	}
+	if users == 0 {
+		log.Warn("no account yet: open the dashboard and create one with this setup token", "setup_token", setupToken)
+	}
+	authSvc := auth.New(st, setupToken, log)
+	go authSvc.Run(ctx)
 
 	// The store outlives the producers so their final flushes land.
 	storeCtx, stopStore := context.WithCancel(context.Background())
@@ -225,7 +288,7 @@ func run(cfg config, log *slog.Logger) error {
 	}
 
 	handler := api.New(api.Deps{
-		Store: st, Ingest: in, Poller: poller, Prober: prober, Web: webFS,
+		Store: st, Auth: authSvc, Ingest: in, Poller: poller, Prober: prober, Web: webFS,
 		Resolver: newResolver(cfg.dnsServer), Version: version, Retention: cfg.retention, Log: log,
 		WANDownBps: cfg.wanDownBps, WANUpBps: cfg.wanUpBps,
 	}).Handler()

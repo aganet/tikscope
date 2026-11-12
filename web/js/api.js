@@ -7,9 +7,11 @@ export function url(path, params = {}) {
   return s ? `${path}?${s}` : path;
 }
 
-export async function get(path, params, signal) {
-  const res = await fetch(url(path, params), { signal });
+async function request(path, init) {
+  const res = await fetch(path, init);
   if (!res.ok) {
+    // A lost session sends the dashboard back to the sign-in page.
+    if (res.status === 401 && !path.startsWith("/api/auth/") && location.pathname !== "/login") location.replace("/login");
     let msg = `${res.status} ${res.statusText}`;
     try {
       const body = await res.json();
@@ -18,6 +20,14 @@ export async function get(path, params, signal) {
     throw new Error(msg);
   }
   return res.json();
+}
+
+export function get(path, params, signal) {
+  return request(url(path, params), { signal });
+}
+
+export function post(path, body) {
+  return request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
 }
 
 export const api = {
@@ -34,4 +44,7 @@ export const api = {
   events: (f, page, pageSize, signal) => get("/api/events", { ...f, page, page_size: pageSize }, signal),
   issues: (signal) => get("/api/issues", {}, signal),
   status: (signal) => get("/api/status", {}, signal),
+  authStatus: (signal) => get("/api/auth/status", {}, signal),
+  logout: () => post("/api/auth/logout"),
+  changePassword: (current, next) => post("/api/auth/password", { current, new: next }),
 };

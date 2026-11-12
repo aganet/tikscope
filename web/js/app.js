@@ -110,6 +110,12 @@ function setupControls() {
     try { localStorage.setItem("tikscope.theme", next); } catch {}
     applyTheme(next);
   });
+  const logout = document.getElementById("logout");
+  replace(logout, icon("logout"));
+  logout.addEventListener("click", async () => {
+    try { await api.logout(); } catch { /* the cookie is gone either way */ }
+    location.replace("/login");
+  });
   replace(document.getElementById("drawer-close"), icon("x"));
   document.getElementById("drawer-close").addEventListener("click", closeDrawer);
   document.getElementById("drawer-backdrop").addEventListener("click", closeDrawer);
@@ -132,11 +138,12 @@ window.addEventListener("hashchange", () => {
 // live one are never confused.
 async function showRouter() {
   try {
-    const s = await api.status();
+    const [s, who] = await Promise.all([api.status(), api.authStatus()]);
     const r = s.router;
     const el = document.getElementById("router-name");
     el.textContent = r && r.identity ? `${r.identity} (${r.board}, RouterOS ${r.version}), ` : "no router configured, ";
     document.title = r && r.identity ? `tikscope: ${r.identity}` : "tikscope";
+    document.getElementById("logout").title = who.username ? `Sign out ${who.username}` : "Sign out";
   } catch { /* status is retried on the next refresh */ }
 }
 

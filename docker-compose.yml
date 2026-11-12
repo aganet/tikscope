@@ -19,6 +19,8 @@ services:
       MIKROTIK_USER: ${MIKROTIK_USER:-}
       MIKROTIK_PASSWORD: ${MIKROTIK_PASSWORD:-}
       MIKROTIK_INSECURE: ${MIKROTIK_INSECURE:-false}
+      # Account creation token; random and logged when empty.
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
       # Only accept syslog from the router (recommended).
       SYSLOG_SOURCES: ${SYSLOG_SOURCES:-}
       # Reachability probes from the container.
