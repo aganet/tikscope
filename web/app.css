@@ -257,11 +257,14 @@ td.nowrap { white-space: nowrap; }
 .gauge .unit { fill: var(--text-2); font-size: 13px; font-weight: 500; }
 .gauge-label { text-align: center; font-size: 14px; margin-top: -26px; }
 .gauge-label span { display: block; font-size: 12px; }
-.gauges { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; align-items: start; }
-.gauges .stat-col { display: grid; gap: 10px; }
-.gauges .stat-col .tile { padding: 12px 14px; }
+.gauges { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: stretch; }
+.gauges .gauge { justify-content: center; }
+.gauges .stat-col { display: grid; grid-auto-rows: 1fr; gap: 10px; }
+.gauges .stat-col .tile { padding: 10px 14px; align-items: center; }
 .gauges .stat-col .tile .value { font-size: 20px; }
 .gauges .stat-col .tile .chip { width: 36px; height: 36px; }
+.gauges .stat-col .tile .spark { margin-top: 2px; }
+.gauges .stat-col .sparkline { height: 22px; }
 .ifaces { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .iface-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px; cursor: pointer; transition: border-color .15s; }
 .iface-card:hover { border-color: var(--accent); }

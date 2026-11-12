@@ -175,9 +175,10 @@ export function lines(container, { series, bucketSecs, height = 200, yFormat = f
   container.appendChild(svg);
 }
 
+// A recent-trend sparkline: the last 30 real samples, evenly spaced.
 export function sparkline(points, color, width = 120, height = 28) {
-  const vals = points.map((p) => (p === null || p === undefined ? null : p));
-  const present = vals.filter((v) => v !== null);
+  const vals = points.filter((p) => p !== null && p !== undefined).slice(-30);
+  const present = vals;
   // Fewer than three points cannot show a trend and only leave stray marks.
   if (present.length < 3) return null;
   const svg = h("svg:svg", { class: "sparkline", viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none", "aria-hidden": "true" });
