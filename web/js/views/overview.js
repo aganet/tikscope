@@ -62,7 +62,7 @@ function peak(buckets) {
   return Math.max(0, ...(buckets || []).map((b) => b.max || 0));
 }
 
-function networkNow(net, state, { navigate, openDrawer }) {
+export function networkNow(net, state, { navigate, openDrawer }, chartHeight = 220) {
   const rx = net.throughput.rx || [], tx = net.throughput.tx || [];
   const down = current(net, "rx"), up = current(net, "tx");
   const downMax = net.limits.down || niceMax(Math.max(peak(rx), down || 0, 1e6));
@@ -84,7 +84,7 @@ function networkNow(net, state, { navigate, openDrawer }) {
       { label: "Download", color: "var(--viz-1)", points: bucketsToPoints(rx) },
       { label: "Upload", color: "var(--viz-2)", points: bucketsToPoints(tx) },
     ];
-    lines(chart, { series, bucketSecs: net.bucket_secs, height: 220, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true });
+    lines(chart, { series, bucketSecs: net.bucket_secs, height: chartHeight, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true });
     chart.appendChild(legend(series, true));
   });
   return h("div", { class: "card" },
@@ -94,8 +94,8 @@ function networkNow(net, state, { navigate, openDrawer }) {
     h("div", { style: { marginTop: "16px" } }, chart));
 }
 
-function interfaceCards(net, state, openDrawer) {
-  const shown = net.interfaces.filter((i) => !i.disabled && i.name !== "lo" && (i.running || i.rx_bps > 0 || i.tx_bps > 0)).slice(0, 8);
+export function interfaceCards(net, state, openDrawer, max = 8, chartHeight = 110) {
+  const shown = net.interfaces.filter((i) => !i.disabled && i.name !== "lo" && (i.running || i.rx_bps > 0 || i.tx_bps > 0)).slice(0, max);
   if (!shown.length) return null;
   return card(sectionTitle("router", "violet", "Interfaces", `${shown.length} active of ${net.interfaces.length}`),
     h("div", { class: "ifaces" }, shown.map((i) => {
@@ -104,7 +104,7 @@ function interfaceCards(net, state, openDrawer) {
       draw(() => lines(el, { series: [
         { label: "Download", color: "var(--viz-1)", points: bucketsToPoints(data.rx || []) },
         { label: "Upload", color: "var(--viz-2)", points: bucketsToPoints(data.tx || []) },
-      ], bucketSecs: net.bucket_secs, height: 110, yFormat: (v) => fmtBps(v), valueFormat: fmtBps }));
+      ], bucketSecs: net.bucket_secs, height: chartHeight, yFormat: (v) => fmtBps(v), valueFormat: fmtBps }));
       return h("div", { class: "iface-card", role: "button", tabindex: 0, onclick: () => openDrawer({ kind: "interface", key: i.name }, state),
         onkeydown: (e) => { if (e.key === "Enter") openDrawer({ kind: "interface", key: i.name }, state); } },
         h("div", { class: "head" },

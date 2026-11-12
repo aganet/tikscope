@@ -7,10 +7,11 @@ import { network } from "./views/network.js";
 import { devices } from "./views/devices.js";
 import { events } from "./views/events.js";
 import { system } from "./views/system.js";
+import { wall } from "./views/wall.js";
 import { openDrawer, closeDrawer, drawerOpen } from "./drawer.js";
 import { api } from "./api.js";
 
-const views = { overview, dns, network, devices, events, system };
+const views = { overview, dns, network, devices, events, system, wall };
 
 export const state = {
   range: "24h",
@@ -44,6 +45,7 @@ async function render(reason = "refresh") {
   current = { name: tab, ctrl };
   state.tab = tab;
   for (const a of document.querySelectorAll("#tabs a")) a.classList.toggle("active", a.dataset.tab === tab);
+  document.body.classList.toggle("wall", tab === "wall");
   main.classList.add("loading");
   try {
     const view = views[tab];

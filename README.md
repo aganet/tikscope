@@ -29,7 +29,8 @@ derived from all three. SQLite storage, embedded web UI, no other services.
 - **System**: collector counters, router identity, version, uptime, every
   health sensor, DHCP pool usage, DNS cache, adlists, probe state.
 
-Time ranges from 1 hour to 30 days, light and dark themes, works on phones.
+Time ranges from 1 hour to 30 days, light and dark themes, works on phones,
+and a wall mode for big screens.
 
 ## Screenshots
 
@@ -47,6 +48,11 @@ DNS analytics and the device drill-down with bandwidth and Wi-Fi signal.
 ![DNS](docs/dns.png)
 
 ![Device](docs/device-detail.png)
+
+Wall mode (`#wall`): edge to edge for a TV or a spare monitor, with a clock,
+issue strip and fullscreen button.
+
+![Wall](docs/wall.png)
 
 Dark theme:
 
