@@ -43,6 +43,8 @@ type config struct {
 	mikrotikPassword string
 	mikrotikInsecure bool
 	pollInterval     time.Duration
+	pollSlowInterval time.Duration
+	metricInterval   time.Duration
 	wanInterface     string
 
 	probeTargets  []probe.Target
@@ -91,7 +93,13 @@ func loadConfig() (config, error) {
 	if cfg.retention.Events, err = envDuration("EVENTS_RETENTION", 30*24*time.Hour, time.Hour); err != nil {
 		return cfg, err
 	}
-	if cfg.pollInterval, err = envDuration("POLL_INTERVAL", 15*time.Second, 5*time.Second); err != nil {
+	if cfg.pollInterval, err = envDuration("POLL_INTERVAL", 5*time.Second, time.Second); err != nil {
+		return cfg, err
+	}
+	if cfg.pollSlowInterval, err = envDuration("POLL_SLOW_INTERVAL", time.Minute, 5*time.Second); err != nil {
+		return cfg, err
+	}
+	if cfg.metricInterval, err = envDuration("METRIC_INTERVAL", 15*time.Second, time.Second); err != nil {
 		return cfg, err
 	}
 	if cfg.probeInterval, err = envDuration("PROBE_INTERVAL", 10*time.Second, 2*time.Second); err != nil {
@@ -198,9 +206,9 @@ func run(cfg config, log *slog.Logger) error {
 	var poller *routeros.Poller
 	if cfg.mikrotikURL != "" {
 		client := routeros.NewClient(cfg.mikrotikURL, cfg.mikrotikUser, cfg.mikrotikPassword, cfg.mikrotikInsecure)
-		poller = routeros.NewPoller(client, st, cfg.pollInterval, cfg.wanInterface, log)
+		poller = routeros.NewPoller(client, st, cfg.pollInterval, cfg.pollSlowInterval, cfg.metricInterval, cfg.wanInterface, log)
 		go poller.Run(ctx)
-		log.Info("polling router", "url", cfg.mikrotikURL, "interval", cfg.pollInterval)
+		log.Info("polling router", "url", cfg.mikrotikURL, "fast", cfg.pollInterval, "slow", cfg.pollSlowInterval, "metrics", cfg.metricInterval)
 	}
 
 	prober := probe.New(cfg.probeTargets, cfg.probeInterval, st, log)

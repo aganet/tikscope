@@ -19,3 +19,5 @@ services:
       # Reachability probes from the container.
       PROBE_ICMP: ${PROBE_ICMP:-1.1.1.1,8.8.8.8}
       PROBE_DNS: ${PROBE_DNS:-}
+      # Router poll rates; 1s keeps the speedometers live.
+      POLL_INTERVAL: ${POLL_INTERVAL:-5s}

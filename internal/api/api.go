@@ -27,7 +27,7 @@ const (
 	maxRange     = 365 * 24 * time.Hour
 	maxLimit     = 500
 	maxPageSize  = 500
-	cacheTTL     = 3 * time.Second
+	cacheTTL     = time.Second
 )
 
 // Deps are the runtime components the handlers read from.

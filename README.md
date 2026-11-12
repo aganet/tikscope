@@ -115,7 +115,9 @@ license and tracks all LAN devices once one dynamic entry exists:
 | `EVENTS_RETENTION` | `30d` | How long router log events are kept |
 | `MIKROTIK_URL`, `MIKROTIK_USER`, `MIKROTIK_PASSWORD` | unset | RouterOS REST API |
 | `MIKROTIK_INSECURE` | `false` | Skip TLS certificate verification |
-| `POLL_INTERVAL` | `15s` | REST API poll interval |
+| `POLL_INTERVAL` | `5s` | Fast poll: interfaces, CPU, memory, connections (1s minimum) |
+| `POLL_SLOW_INTERVAL` | `1m` | Slow poll: leases, ARP, Wi-Fi, WireGuard, Netwatch, pools, link rates |
+| `METRIC_INTERVAL` | `15s` | How often fast metrics are written to the database |
 | `WAN_INTERFACE` | auto (default route) | Interface featured on the overview |
 | `WAN_DOWN_MBPS`, `WAN_UP_MBPS` | auto (peak in range) | Line speed used as the speedometer scale |
 | `PROBE_ICMP` | `1.1.1.1,8.8.8.8` | ICMP targets, comma separated, `none` to disable |

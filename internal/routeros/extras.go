@@ -259,7 +259,6 @@ func (p *Poller) pollEthernet(ctx context.Context, snap *Snapshot, _ time.Time) 
 		}
 		return err
 	}
-	rates := map[string]struct{ rate, duplex string }{}
 	for _, r := range rows {
 		duplex := ""
 		if r.FullDuplex != "" {
@@ -268,12 +267,11 @@ func (p *Poller) pollEthernet(ctx context.Context, snap *Snapshot, _ time.Time) 
 				duplex = "full"
 			}
 		}
-		rates[r.Name] = struct{ rate, duplex string }{r.Rate, duplex}
+		p.rates[r.Name] = [2]string{r.Rate, duplex}
 	}
 	for i := range snap.Interfaces {
-		if r, ok := rates[snap.Interfaces[i].Name]; ok {
-			snap.Interfaces[i].LinkRate = r.rate
-			snap.Interfaces[i].Duplex = r.duplex
+		if r, ok := p.rates[snap.Interfaces[i].Name]; ok {
+			snap.Interfaces[i].LinkRate, snap.Interfaces[i].Duplex = r[0], r[1]
 		}
 	}
 	return nil

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -116,57 +117,93 @@ type counters struct {
 type Poller struct {
 	client   *Client
 	store    *store.Store
-	interval time.Duration
+	fast     time.Duration // interfaces, resources, connections
+	slow     time.Duration // everything else
+	sampleIv time.Duration // how often fast metrics are written
 	wanHint  string
 	log      *slog.Logger
 
 	snapshot atomic.Pointer[Snapshot]
+	mu       sync.Mutex
+	cur      Snapshot
+	fastErr  error
+	slowErr  error
+	lastSamp time.Time
+	record   bool
+	rates    map[string][2]string
 	ifaces   map[string]counters
 	devices  map[string]counters
 	peers    map[string]counters
 }
 
-func NewPoller(client *Client, st *store.Store, interval time.Duration, wanHint string, log *slog.Logger) *Poller {
-	return &Poller{client: client, store: st, interval: interval, wanHint: wanHint, log: log,
-		ifaces: map[string]counters{}, devices: map[string]counters{}, peers: map[string]counters{}}
+func NewPoller(client *Client, st *store.Store, fast, slow, sampleEvery time.Duration, wanHint string, log *slog.Logger) *Poller {
+	return &Poller{client: client, store: st, fast: fast, slow: slow, sampleIv: sampleEvery, wanHint: wanHint, log: log,
+		ifaces: map[string]counters{}, devices: map[string]counters{}, peers: map[string]counters{}, rates: map[string][2]string{}}
 }
 
 func (p *Poller) Snapshot() *Snapshot { return p.snapshot.Load() }
 
 func (p *Poller) Run(ctx context.Context) {
-	t := time.NewTicker(p.interval)
-	defer t.Stop()
+	fast := time.NewTicker(p.fast)
+	slow := time.NewTicker(p.slow)
+	defer fast.Stop()
+	defer slow.Stop()
+	p.poll(ctx, fastSteps, &p.fastErr)
+	p.poll(ctx, slowSteps, &p.slowErr)
 	for {
-		p.poll(ctx)
 		select {
-		case <-t.C:
+		case <-fast.C:
+			p.poll(ctx, fastSteps, &p.fastErr)
+		case <-slow.C:
+			p.poll(ctx, slowSteps, &p.slowErr)
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-func (p *Poller) poll(ctx context.Context) {
+type step func(*Poller, context.Context, *Snapshot, time.Time) error
+
+var (
+	fastSteps = []step{(*Poller).pollSystem, (*Poller).pollInterfaces, (*Poller).pollConnections}
+	slowSteps = []step{(*Poller).pollHosts, (*Poller).pollDNS, (*Poller).pollDevices, (*Poller).pollWifi,
+		(*Poller).pollWireGuard, (*Poller).pollNetwatch, (*Poller).pollPools, (*Poller).pollEthernet}
+)
+
+// poll runs one group of steps against the merged snapshot and publishes a
+// copy. Slow-changing data is only written to the metrics table every
+// sampleIv so a 1s fast loop does not flood the database.
+func (p *Poller) poll(ctx context.Context, steps []step, errSlot *error) {
 	now := time.Now()
-	snap := Snapshot{UpdatedAt: now.Unix()}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.record = now.Sub(p.lastSamp) >= p.sampleIv
+	if p.record {
+		p.lastSamp = now
+	}
 	var errs []error
-	for _, step := range []func(context.Context, *Snapshot, time.Time) error{
-		p.pollSystem, p.pollInterfaces, p.pollEthernet, p.pollConnections, p.pollHosts, p.pollDNS, p.pollDevices, p.pollWifi,
-		p.pollWireGuard, p.pollNetwatch, p.pollPools,
-	} {
-		if err := step(ctx, &snap, now); err != nil {
+	for _, st := range steps {
+		if err := st(p, ctx, &p.cur, now); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	if len(errs) > 0 {
-		err := errors.Join(errs...)
+	*errSlot = errors.Join(errs...)
+	if *errSlot != nil {
+		p.log.Warn("router poll", "err", *errSlot)
+	}
+	snap := p.cur
+	snap.UpdatedAt = now.Unix()
+	snap.Error = ""
+	if err := errors.Join(p.fastErr, p.slowErr); err != nil {
 		snap.Error = err.Error()
-		p.log.Warn("router poll", "err", err)
 	}
 	p.snapshot.Store(&snap)
 }
 
 func (p *Poller) sample(now time.Time, metric, key string, v float64) {
+	if !p.record {
+		return
+	}
 	p.store.AddSample(store.Sample{TS: now, Metric: metric, Key: key, Value: v})
 }
 
@@ -256,6 +293,7 @@ func (p *Poller) pollInterfaces(ctx context.Context, snap *Snapshot, now time.Ti
 	}
 	wan := p.detectWAN(ctx)
 	seen := map[string]bool{}
+	snap.Interfaces = nil
 	for _, i := range list {
 		seen[i.Name] = true
 		cur := counters{at: now, rx: atoi(i.RxByte), tx: atoi(i.TxByte),
@@ -263,6 +301,9 @@ func (p *Poller) pollInterfaces(ctx context.Context, snap *Snapshot, now time.Ti
 		iface := Interface{Name: i.Name, Type: i.Type, Comment: i.Comment, MAC: i.MAC, Running: isTrue(i.Running),
 			Disabled: isTrue(i.Disabled), WAN: i.Name == wan, RxBytes: cur.rx, TxBytes: cur.tx, Errors: cur.errs, Drops: cur.drops,
 			LinkDowns: cur.downs, LastLink: i.LastUp}
+		if r, ok := p.rates[i.Name]; ok {
+			iface.LinkRate, iface.Duplex = r[0], r[1]
+		}
 		if prev, ok := p.ifaces[i.Name]; ok {
 			secs := now.Sub(prev.at).Seconds()
 			// Counters reset on reboot; skip the interval instead of
