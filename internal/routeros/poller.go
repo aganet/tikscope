@@ -16,7 +16,12 @@ import (
 const (
 	MetricIfaceRx       = "iface.rx_bps"
 	MetricIfaceTx       = "iface.tx_bps"
-	MetricIfaceErrors   = "iface.errors" // rx+tx errors and drops per interval
+	MetricIfaceErrors   = "iface.errors" // rx+tx errors per interval
+	MetricIfaceDrops    = "iface.drops"  // rx+tx drops per interval, noisy on Wi-Fi
+	MetricWGRx          = "wg.rx_bps"
+	MetricWGTx          = "wg.tx_bps"
+	MetricHealth        = "health" // prefix, one metric per sensor
+	MetricPoolUsed      = "pool.used_pct"
 	MetricIfaceLinkDown = "iface.link_downs"
 	MetricDeviceRx      = "dev.rx_bps"
 	MetricDeviceTx      = "dev.tx_bps"
@@ -42,8 +47,11 @@ type Interface struct {
 	RxBytes   int64   `json:"rx_bytes"`
 	TxBytes   int64   `json:"tx_bytes"`
 	Errors    int64   `json:"errors"`
+	Drops     int64   `json:"drops"`
 	LinkDowns int64   `json:"link_downs"`
 	LastLink  string  `json:"last_link_up,omitempty"`
+	LinkRate  string  `json:"link_rate,omitempty"`
+	Duplex    string  `json:"duplex,omitempty"`
 }
 
 type WifiClient struct {
@@ -63,32 +71,36 @@ type Adlist struct {
 
 // Snapshot is the latest state read from the router.
 type Snapshot struct {
-	UpdatedAt   int64        `json:"updated_at"`
-	Error       string       `json:"error,omitempty"`
-	Identity    string       `json:"identity"`
-	Version     string       `json:"version"`
-	Board       string       `json:"board"`
-	Uptime      string       `json:"uptime"`
-	CPULoad     int64        `json:"cpu_load"`
-	FreeMemory  int64        `json:"free_memory"`
-	TotalMemory int64        `json:"total_memory"`
-	FreeHDD     int64        `json:"free_hdd"`
-	TotalHDD    int64        `json:"total_hdd"`
-	Temperature *int64       `json:"temperature,omitempty"`
-	Voltage     *float64     `json:"voltage,omitempty"`
-	Connections int64        `json:"connections"`
-	MaxConns    int64        `json:"max_connections"`
-	DNSServers  string       `json:"dns_servers"`
-	DNSDynamic  string       `json:"dns_dynamic_servers"`
-	CacheUsed   int64        `json:"cache_used_kib"`
-	CacheSize   int64        `json:"cache_size_kib"`
-	Adlists     []Adlist     `json:"adlists"`
-	Interfaces  []Interface  `json:"interfaces"`
-	WAN         string       `json:"wan"`
-	WifiClients []WifiClient `json:"wifi_clients"`
-	Leases      int          `json:"leases"`
-	Hosts       int          `json:"hosts"`
-	KidControl  bool         `json:"kid_control"`
+	UpdatedAt   int64             `json:"updated_at"`
+	Error       string            `json:"error,omitempty"`
+	Identity    string            `json:"identity"`
+	Version     string            `json:"version"`
+	Board       string            `json:"board"`
+	Uptime      string            `json:"uptime"`
+	CPULoad     int64             `json:"cpu_load"`
+	FreeMemory  int64             `json:"free_memory"`
+	TotalMemory int64             `json:"total_memory"`
+	FreeHDD     int64             `json:"free_hdd"`
+	TotalHDD    int64             `json:"total_hdd"`
+	Temperature *int64            `json:"temperature,omitempty"`
+	Voltage     *float64          `json:"voltage,omitempty"`
+	Connections int64             `json:"connections"`
+	MaxConns    int64             `json:"max_connections"`
+	DNSServers  string            `json:"dns_servers"`
+	DNSDynamic  string            `json:"dns_dynamic_servers"`
+	CacheUsed   int64             `json:"cache_used_kib"`
+	CacheSize   int64             `json:"cache_size_kib"`
+	Adlists     []Adlist          `json:"adlists"`
+	Interfaces  []Interface       `json:"interfaces"`
+	WAN         string            `json:"wan"`
+	WifiClients []WifiClient      `json:"wifi_clients"`
+	Leases      int               `json:"leases"`
+	Hosts       int               `json:"hosts"`
+	KidControl  bool              `json:"kid_control"`
+	WireGuard   []WGPeer          `json:"wireguard"`
+	Netwatch    []NetwatchHost    `json:"netwatch"`
+	Health      map[string]string `json:"health"`
+	Pools       []Pool            `json:"pools"`
 }
 
 type counters struct {
@@ -96,6 +108,7 @@ type counters struct {
 	rx    int64
 	tx    int64
 	errs  int64
+	drops int64
 	downs int64
 }
 
@@ -110,11 +123,12 @@ type Poller struct {
 	snapshot atomic.Pointer[Snapshot]
 	ifaces   map[string]counters
 	devices  map[string]counters
+	peers    map[string]counters
 }
 
 func NewPoller(client *Client, st *store.Store, interval time.Duration, wanHint string, log *slog.Logger) *Poller {
 	return &Poller{client: client, store: st, interval: interval, wanHint: wanHint, log: log,
-		ifaces: map[string]counters{}, devices: map[string]counters{}}
+		ifaces: map[string]counters{}, devices: map[string]counters{}, peers: map[string]counters{}}
 }
 
 func (p *Poller) Snapshot() *Snapshot { return p.snapshot.Load() }
@@ -137,7 +151,8 @@ func (p *Poller) poll(ctx context.Context) {
 	snap := Snapshot{UpdatedAt: now.Unix()}
 	var errs []error
 	for _, step := range []func(context.Context, *Snapshot, time.Time) error{
-		p.pollSystem, p.pollInterfaces, p.pollConnections, p.pollHosts, p.pollDNS, p.pollDevices, p.pollWifi,
+		p.pollSystem, p.pollInterfaces, p.pollEthernet, p.pollConnections, p.pollHosts, p.pollDNS, p.pollDevices, p.pollWifi,
+		p.pollWireGuard, p.pollNetwatch, p.pollPools,
 	} {
 		if err := step(ctx, &snap, now); err != nil {
 			errs = append(errs, err)
@@ -193,7 +208,14 @@ func (p *Poller) pollSystem(ctx context.Context, snap *Snapshot, now time.Time) 
 		Value string `json:"value"`
 	}
 	if err := p.client.Get(ctx, "/system/health", &health); err == nil {
+		snap.Health = map[string]string{}
 		for _, h := range health {
+			if h.Name != "" {
+				snap.Health[h.Name] = h.Value
+				if f, ok := parseFloat(h.Value); ok {
+					p.sample(now, MetricHealth+"."+h.Name, "router", f)
+				}
+			}
 			switch h.Name {
 			case "temperature", "cpu-temperature", "board-temperature1":
 				if snap.Temperature == nil {
@@ -237,9 +259,9 @@ func (p *Poller) pollInterfaces(ctx context.Context, snap *Snapshot, now time.Ti
 	for _, i := range list {
 		seen[i.Name] = true
 		cur := counters{at: now, rx: atoi(i.RxByte), tx: atoi(i.TxByte),
-			errs: atoi(i.RxError) + atoi(i.TxError) + atoi(i.RxDrop) + atoi(i.TxDrop), downs: atoi(i.LinkDowns)}
+			errs: atoi(i.RxError) + atoi(i.TxError), drops: atoi(i.RxDrop) + atoi(i.TxDrop), downs: atoi(i.LinkDowns)}
 		iface := Interface{Name: i.Name, Type: i.Type, Comment: i.Comment, MAC: i.MAC, Running: isTrue(i.Running),
-			Disabled: isTrue(i.Disabled), WAN: i.Name == wan, RxBytes: cur.rx, TxBytes: cur.tx, Errors: cur.errs,
+			Disabled: isTrue(i.Disabled), WAN: i.Name == wan, RxBytes: cur.rx, TxBytes: cur.tx, Errors: cur.errs, Drops: cur.drops,
 			LinkDowns: cur.downs, LastLink: i.LastUp}
 		if prev, ok := p.ifaces[i.Name]; ok {
 			secs := now.Sub(prev.at).Seconds()
@@ -254,6 +276,9 @@ func (p *Poller) pollInterfaces(ctx context.Context, snap *Snapshot, now time.Ti
 				}
 				if d := cur.errs - prev.errs; d > 0 {
 					p.sample(now, MetricIfaceErrors, i.Name, float64(d))
+				}
+				if d := cur.drops - prev.drops; d > 0 {
+					p.sample(now, MetricIfaceDrops, i.Name, float64(d))
 				}
 				if d := cur.downs - prev.downs; d > 0 {
 					p.sample(now, MetricIfaceLinkDown, i.Name, float64(d))

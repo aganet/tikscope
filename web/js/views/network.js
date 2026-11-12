@@ -1,7 +1,7 @@
 import { draw } from "../charts.js";
 import { h, card, sectionTitle, kv } from "../dom.js";
 import { api } from "../api.js";
-import { fmtBps, fmtBytes, fmtMs, fmtInt, fmtPct, fmtAgo, fmtNum } from "../format.js";
+import { fmtBps, fmtBytes, fmtMs, fmtInt, fmtPct, fmtAgo, fmtNum, fmtDuration } from "../format.js";
 import { lines, legend, bucketsToPoints } from "../charts.js";
 import { tile, table } from "../widgets.js";
 import { throughputChart, probeChart } from "./overview.js";
@@ -44,13 +44,14 @@ export const network = {
       blocks.push(card(sectionTitle("router", "violet", "Interfaces", `${net.interfaces.length} on ${net.router.identity}`),
         table([
           { label: "Interface", render: (i) => [h("button", { class: "link", onclick: () => openDrawer({ kind: "interface", key: i.name }, state) }, i.name), i.wan ? h("span", { class: "badge", style: { marginLeft: "6px" } }, "WAN") : null, i.comment ? h("span", { class: "muted" }, ` ${i.comment}`) : null] },
-          { label: "Type", cls: "muted", render: (i) => i.type },
+          { label: "Type", cls: "muted", render: (i) => [i.type, i.link_rate ? ` ${i.link_rate}` : ""] },
           { label: "State", render: (i) => h("span", { class: "status-pill" }, h("span", { class: "dot", style: { background: i.disabled ? "var(--neutral)" : i.running ? "var(--good)" : "var(--critical)" } }), i.disabled ? "disabled" : i.running ? "running" : "down") },
           { label: "Download", right: true, cls: "num", render: (i) => fmtBps(i.rx_bps) },
           { label: "Upload", right: true, cls: "num", render: (i) => fmtBps(i.tx_bps) },
           { label: "Received", right: true, cls: "num muted", render: (i) => fmtBytes(i.rx_bytes) },
           { label: "Sent", right: true, cls: "num muted", render: (i) => fmtBytes(i.tx_bytes) },
           { label: "Errors", right: true, cls: "num", render: (i) => (i.errors ? fmtInt(i.errors) : "-") },
+          { label: "Drops", right: true, cls: "num muted", render: (i) => (i.drops ? fmtInt(i.drops) : "-") },
           { label: "Link downs", right: true, cls: "num", render: (i) => (i.link_downs ? fmtInt(i.link_downs) : "-") },
         ], net.interfaces, { onRow: (i) => openDrawer({ kind: "interface", key: i.name }, state) })));
 
@@ -65,6 +66,29 @@ export const network = {
         card(sectionTitle("link", "blue", "Connections", "Tracked by the firewall"), sys("connections", "Connections", fmtNum))));
     }
 
+    const r = net.router;
+    if (r && (r.wireguard || []).length) {
+      blocks.push(card(sectionTitle("link", "violet", "WireGuard peers", `${r.wireguard.length} on ${new Set(r.wireguard.map((p) => p.interface)).size} interface${new Set(r.wireguard.map((p) => p.interface)).size === 1 ? "" : "s"}`),
+        table([
+          { label: "Peer", render: (p) => [h("b", null, p.name), h("span", { class: "muted" }, ` ${p.interface}`)] },
+          { label: "Endpoint", cls: "mono muted", render: (p) => p.endpoint || "-" },
+          { label: "Allowed", cls: "mono muted", render: (p) => p.allowed_address },
+          { label: "Handshake", render: (p) => h("span", { class: "status-pill" }, h("span", { class: "dot", style: { background: p.disabled ? "var(--neutral)" : p.handshake_age_secs < 0 ? "var(--neutral)" : p.handshake_age_secs <= 180 ? "var(--good)" : p.handshake_age_secs <= 900 ? "var(--warning)" : "var(--critical)" } }), p.handshake_age_secs < 0 ? "never" : `${p.last_handshake} ago`) },
+          { label: "Download", right: true, cls: "num", render: (p) => fmtBps(p.rx_bps) },
+          { label: "Upload", right: true, cls: "num", render: (p) => fmtBps(p.tx_bps) },
+          { label: "Received", right: true, cls: "num muted", render: (p) => fmtBytes(p.rx_bytes) },
+          { label: "Sent", right: true, cls: "num muted", render: (p) => fmtBytes(p.tx_bytes) },
+        ], r.wireguard)));
+    }
+    if (r && (r.netwatch || []).length) {
+      blocks.push(card(sectionTitle("radio", "sky", "Netwatch", "Hosts watched by the router"),
+        table([
+          { label: "Host", render: (w) => [h("b", { class: "mono" }, w.host), w.comment ? h("span", { class: "muted" }, ` ${w.comment}`) : null] },
+          { label: "Type", cls: "muted", render: (w) => w.type },
+          { label: "Status", render: (w) => h("span", { class: "status-pill" }, h("span", { class: "dot", style: { background: w.status === "up" ? "var(--good)" : "var(--critical)" } }), w.status) },
+          { label: "Since", cls: "mono muted", render: (w) => w.since },
+        ], r.netwatch)));
+    }
     if (net.probes.length) {
       blocks.push(card(sectionTitle("zap", "sky", "Reachability", "ICMP and DNS probes from the collector"),
         probeChart(net, 200),

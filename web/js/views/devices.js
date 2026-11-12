@@ -1,6 +1,6 @@
 import { h, icon, card, sectionTitle } from "../dom.js";
 import { api } from "../api.js";
-import { fmtBps, fmtInt, fmtAgo } from "../format.js";
+import { fmtBps, fmtInt, fmtAgo, fmtRate } from "../format.js";
 import { table } from "../widgets.js";
 
 function viewState(state) {
@@ -21,15 +21,15 @@ export const devices = {
   render(list, state, { openDrawer }) {
     const v = viewState(state);
     const q = v.search.trim().toLowerCase();
-    const rows = q ? list.filter((d) => [d.ip, d.name, d.mac].some((x) => (x || "").toLowerCase().includes(q))) : list;
+    const rows = q ? list.filter((d) => [...(d.ips || [d.ip]), d.name, d.mac].some((x) => (x || "").toLowerCase().includes(q))) : list;
     const hasBandwidth = list.some((d) => d.rx_avg_bps !== null);
     const hasWifi = list.some((d) => d.wifi);
     let debounce;
     const columns = [
       { label: "Device", render: (d) => [h("b", null, d.name || h("span", { class: "muted" }, "unnamed")), d.wifi ? h("span", { class: "muted", title: `Wi-Fi ${d.wifi.interface}` }, " ", icon("wifi", "inline-icon")) : null] },
-      { label: "Address", cls: "mono nowrap", render: (d) => d.ip },
+      { label: "Address", cls: "mono nowrap", render: (d) => [d.ip, d.ips && d.ips.length > 1 ? h("span", { class: "muted", title: d.ips.join("\n") }, ` +${d.ips.length - 1}`) : null] },
       { label: "MAC", cls: "mono muted nowrap", render: (d) => d.mac || "-" },
-      hasWifi && { label: "Wi-Fi", render: (d) => (d.wifi ? [wifiBars(d.wifi.signal_dbm), h("span", { class: "muted mono" }, `${d.wifi.signal_dbm} dBm`)] : h("span", { class: "muted" }, "-")) },
+      hasWifi && { label: "Wi-Fi", cls: "nowrap", render: (d) => (d.wifi ? [wifiBars(d.wifi.signal_dbm), h("span", { class: "muted mono" }, `${d.wifi.signal_dbm} dBm`), d.wifi.tx_rate ? h("span", { class: "muted" }, ` ${fmtRate(d.wifi.tx_rate)}`) : null] : h("span", { class: "muted" }, "-")) },
       { label: "DNS queries", right: true, cls: "num", render: (d) => fmtInt(d.queries) },
       { label: "Problems", right: true, cls: "num", render: (d) => (d.problems ? fmtInt(d.problems) : "-") },
       hasBandwidth && { label: "Download", right: true, cls: "num", render: (d) => fmtBps(d.rx_bps) },

@@ -99,7 +99,7 @@ async function clientDetail(ip, state, signal) {
         { label: "Download", color: "var(--viz-1)", points: bucketsToPoints(rx.series[0] ? rx.series[0].buckets : []) },
         { label: "Upload", color: "var(--viz-2)", points: bucketsToPoints(tx.series[0] ? tx.series[0].buckets : []) },
       ].filter((s) => s.points.length);
-      lines(chart, { series, bucketSecs: rx.bucket_secs, height: 170, yFormat: (v) => fmtBps(v), valueFormat: fmtBps });
+      lines(chart, { series, bucketSecs: rx.bucket_secs, height: 170, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true });
       chart.appendChild(legend(series, true));
     });
     return h("section", null, h("h3", null, "Bandwidth"), chart);
@@ -172,9 +172,10 @@ function resolveSection(domain) {
 }
 
 async function interfaceDetail(name, state, signal) {
-  const [net, errs, downs] = await Promise.all([
+  const [net, errs, drops, downs] = await Promise.all([
     api.network(state.range, name, signal),
     api.metrics("iface.errors", name, state.range, signal),
+    api.metrics("iface.drops", name, state.range, signal),
     api.metrics("iface.link_downs", name, state.range, signal),
   ]);
   const iface = net.interfaces.find((i) => i.name === name) || {};
@@ -184,13 +185,13 @@ async function interfaceDetail(name, state, signal) {
       { label: "Download", color: "var(--viz-1)", points: bucketsToPoints(net.throughput.rx || []) },
       { label: "Upload", color: "var(--viz-2)", points: bucketsToPoints(net.throughput.tx || []) },
     ];
-    lines(chart, { series, bucketSecs: net.bucket_secs, height: 200, yFormat: (v) => fmtBps(v), valueFormat: fmtBps });
+    lines(chart, { series, bucketSecs: net.bucket_secs, height: 200, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true });
     chart.appendChild(legend(series, true));
   });
   const sum = (m) => (m.series[0] ? m.series[0].buckets.reduce((a, b) => a + (b.avg || 0) * b.n, 0) : 0);
   const peak = (b) => Math.max(0, ...(b || []).map((x) => x.max || 0));
   return [
-    ...title(name, [iface.type || "interface", iface.comment ? ` ${iface.comment}` : "", iface.wan ? " (WAN)" : ""]),
+    ...title(name, [iface.type || "interface", iface.link_rate ? ` ${iface.link_rate}${iface.duplex ? " " + iface.duplex + " duplex" : ""}` : "", iface.comment ? `, ${iface.comment}` : "", iface.wan ? " (WAN)" : ""]),
     stats([
       ["State", iface.disabled ? "disabled" : iface.running ? "running" : "down"],
       ["Peak download", fmtBps(peak(net.throughput.rx))],
@@ -198,6 +199,7 @@ async function interfaceDetail(name, state, signal) {
       ["Received total", fmtBytes(iface.rx_bytes || 0)],
       ["Sent total", fmtBytes(iface.tx_bytes || 0)],
       ["Errors in range", fmtInt(sum(errs))],
+      ["Drops in range", fmtInt(sum(drops))],
       ["Link downs in range", fmtInt(sum(downs))],
     ]),
     h("section", null, h("h3", null, "Throughput"), chart),

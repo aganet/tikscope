@@ -3,6 +3,7 @@
 package routeros
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -86,4 +87,30 @@ func parseFloat(s string) (float64, bool) {
 	}
 	v, err := strconv.ParseFloat(s[:end], 64)
 	return v, err == nil
+}
+
+// Post runs a RouterOS command (print, monitor) and decodes its reply.
+func (c *Client) Post(ctx context.Context, path string, body any, out any) error {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/rest"+path, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(c.user, c.password)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return NotFound{Path: path}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("POST %s: %s", path, resp.Status)
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
 }

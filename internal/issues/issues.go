@@ -123,7 +123,8 @@ func Evaluate(ctx context.Context, st *store.Store, in Inputs) ([]Issue, error) 
 			Detail: fmt.Sprintf("average response time %.0f ms over the last 5 minutes", *sum.LatencyMS)})
 	}
 
-	// Interface errors and link flaps.
+	// Interface errors and link flaps. Drops are not alerted: Wi-Fi
+	// interfaces drop frames constantly in normal operation.
 	for _, metric := range []string{routeros.MetricIfaceLinkDown, routeros.MetricIfaceErrors} {
 		keys, err := st.MetricKeys(ctx, metric, now.Add(-short))
 		if err != nil {
@@ -161,6 +162,30 @@ func Evaluate(ctx context.Context, st *store.Store, in Inputs) ([]Issue, error) 
 			if r.MaxConns > 0 {
 				if used := 100 * float64(r.Connections) / float64(r.MaxConns); used >= th.ConnPct {
 					out = append(out, Issue{Severity: "error", Kind: "router", Title: "Connection table almost full", Detail: fmt.Sprintf("%d of %d tracked connections", r.Connections, r.MaxConns)})
+				}
+			}
+			for _, w := range r.Netwatch {
+				if w.Status == "down" {
+					label := w.Host
+					if w.Comment != "" {
+						label = w.Comment + " (" + w.Host + ")"
+					}
+					out = append(out, Issue{Severity: "error", Kind: "router", Key: w.Host, Title: "Netwatch: " + label + " is down", Detail: "since " + w.Since})
+				}
+			}
+			for _, peer := range r.WireGuard {
+				// Peers with an endpoint are expected to keep a session alive.
+				if !peer.Disabled && peer.Endpoint != "" && (peer.HandshakeAge < 0 || peer.HandshakeAge > 15*60) {
+					age := "never"
+					if peer.HandshakeAge >= 0 {
+						age = peer.LastHandshake + " ago"
+					}
+					out = append(out, Issue{Severity: "warning", Kind: "router", Key: peer.Name, Title: fmt.Sprintf("WireGuard peer %s on %s is silent", peer.Name, peer.Interface), Detail: "last handshake " + age})
+				}
+			}
+			for _, pool := range r.Pools {
+				if pool.UsedPct >= 90 {
+					out = append(out, Issue{Severity: "warning", Kind: "router", Key: pool.Name, Title: fmt.Sprintf("DHCP pool %s almost full", pool.Name), Detail: fmt.Sprintf("%d of %d addresses leased", pool.Used, pool.Size)})
 				}
 			}
 			if r.WAN != "" {

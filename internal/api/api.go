@@ -41,6 +41,9 @@ type Deps struct {
 	Version   string
 	Retention store.Retention
 	Log       *slog.Logger
+	// Configured WAN line speeds in bits per second; zero means auto-scale.
+	WANDownBps float64
+	WANUpBps   float64
 }
 
 type API struct {
@@ -375,14 +378,16 @@ type probeView struct {
 }
 
 type networkView struct {
-	BucketSecs int64                           `json:"bucket_secs"`
-	Since      int64                           `json:"since"`
-	Router     *routeros.Snapshot              `json:"router"`
-	WAN        string                          `json:"wan"`
-	Interfaces []routeros.Interface            `json:"interfaces"`
-	Throughput map[string][]store.MetricBucket `json:"throughput"` // rx, tx for the WAN
-	System     map[string][]store.MetricBucket `json:"system"`     // cpu, mem, connections
-	Probes     []probeView                     `json:"probes"`
+	BucketSecs int64                                      `json:"bucket_secs"`
+	Since      int64                                      `json:"since"`
+	Router     *routeros.Snapshot                         `json:"router"`
+	WAN        string                                     `json:"wan"`
+	Interfaces []routeros.Interface                       `json:"interfaces"`
+	Throughput map[string][]store.MetricBucket            `json:"throughput"` // rx, tx for the selected interface
+	All        map[string]map[string][]store.MetricBucket `json:"all"`        // rx, tx per interface
+	Limits     map[string]float64                         `json:"limits"`     // configured down/up bps, 0 = auto
+	System     map[string][]store.MetricBucket            `json:"system"`     // cpu, mem, connections
+	Probes     []probeView                                `json:"probes"`
 }
 
 func (a *API) network(r *http.Request) (any, error) {
@@ -394,7 +399,8 @@ func (a *API) network(r *http.Request) (any, error) {
 	now := time.Now()
 	since := now.Add(-window)
 	bucket := metricBucket(window)
-	v := networkView{BucketSecs: bucket, Since: since.Unix(), Throughput: map[string][]store.MetricBucket{}, System: map[string][]store.MetricBucket{}, Probes: []probeView{}}
+	v := networkView{BucketSecs: bucket, Since: since.Unix(), Throughput: map[string][]store.MetricBucket{}, All: map[string]map[string][]store.MetricBucket{},
+		Limits: map[string]float64{"down": a.WANDownBps, "up": a.WANUpBps}, System: map[string][]store.MetricBucket{}, Probes: []probeView{}}
 	if a.Poller != nil {
 		v.Router = a.Poller.Snapshot()
 	}
@@ -418,6 +424,19 @@ func (a *API) network(r *http.Request) (any, error) {
 			if len(s) > 0 {
 				v.Throughput[name] = s[0].Buckets
 			}
+		}
+	}
+	// One query per direction covers every interface at once.
+	for metric, name := range map[string]string{routeros.MetricIfaceRx: "rx", routeros.MetricIfaceTx: "tx"} {
+		series, err := a.Store.MetricTimeline(ctx, metric, "", since, bucket, now)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range series {
+			if v.All[s.Key] == nil {
+				v.All[s.Key] = map[string][]store.MetricBucket{}
+			}
+			v.All[s.Key][name] = s.Buckets
 		}
 	}
 	for metric, name := range map[string]string{routeros.MetricCPU: "cpu", routeros.MetricMemUsed: "mem", routeros.MetricConnections: "connections"} {
@@ -459,6 +478,7 @@ func (a *API) network(r *http.Request) (any, error) {
 
 type deviceView struct {
 	IP       string               `json:"ip"`
+	IPs      []string             `json:"ips"`
 	Name     string               `json:"name"`
 	MAC      string               `json:"mac"`
 	Source   string               `json:"source"`
@@ -559,8 +579,58 @@ func (a *API) devices(r *http.Request) (any, error) {
 	for _, ip := range order {
 		out = append(out, *byIP[ip])
 	}
+	out = groupByMAC(out)
 	sortDevices(out)
 	return out, nil
+}
+
+// groupByMAC folds the addresses of one physical device (IPv4 lease, IPv6
+// neighbours) into a single row; addresses without a MAC stay separate.
+func groupByMAC(list []deviceView) []deviceView {
+	byMAC := map[string]*deviceView{}
+	var out []*deviceView
+	for i := range list {
+		d := list[i]
+		d.IPs = []string{d.IP}
+		if d.MAC == "" {
+			out = append(out, &d)
+			continue
+		}
+		g, ok := byMAC[d.MAC]
+		if !ok {
+			byMAC[d.MAC] = &d
+			out = append(out, &d)
+			continue
+		}
+		g.IPs = append(g.IPs, d.IP)
+		// Prefer an IPv4 address as the primary one.
+		if strings.Contains(g.IP, ":") && !strings.Contains(d.IP, ":") {
+			g.IP = d.IP
+		}
+		if g.Name == "" {
+			g.Name = d.Name
+		}
+		if g.Source != "dhcp" && d.Source == "dhcp" {
+			g.Source = d.Source
+		}
+		g.Queries += d.Queries
+		g.Problems += d.Problems
+		g.Domains = max(g.Domains, d.Domains)
+		g.LastSeen = max(g.LastSeen, d.LastSeen)
+		for dst, src := range map[**float64]*float64{&g.RxBps: d.RxBps, &g.TxBps: d.TxBps, &g.RxAvgBps: d.RxAvgBps, &g.TxAvgBps: d.TxAvgBps} {
+			if *dst == nil {
+				*dst = src
+			}
+		}
+		if g.Wifi == nil {
+			g.Wifi = d.Wifi
+		}
+	}
+	res := make([]deviceView, 0, len(out))
+	for _, d := range out {
+		res = append(res, *d)
+	}
+	return res
 }
 
 func sortDevices(list []deviceView) {

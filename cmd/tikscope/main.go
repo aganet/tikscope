@@ -47,6 +47,8 @@ type config struct {
 
 	probeTargets  []probe.Target
 	probeInterval time.Duration
+	wanDownBps    float64
+	wanUpBps      float64
 }
 
 func env(name, def string) string {
@@ -98,6 +100,15 @@ func loadConfig() (config, error) {
 	if s := os.Getenv("MIKROTIK_INSECURE"); s != "" {
 		if cfg.mikrotikInsecure, err = strconv.ParseBool(s); err != nil {
 			return cfg, fmt.Errorf("MIKROTIK_INSECURE must be a boolean, got %q", s)
+		}
+	}
+	for name, dst := range map[string]*float64{"WAN_DOWN_MBPS": &cfg.wanDownBps, "WAN_UP_MBPS": &cfg.wanUpBps} {
+		if s := os.Getenv(name); s != "" {
+			mbps, err := strconv.ParseFloat(s, 64)
+			if err != nil || mbps <= 0 {
+				return cfg, fmt.Errorf("%s must be a positive number, got %q", name, s)
+			}
+			*dst = mbps * 1e6
 		}
 	}
 	if cfg.mikrotikURL != "" && cfg.mikrotikUser == "" {
@@ -201,6 +212,7 @@ func run(cfg config, log *slog.Logger) error {
 	handler := api.New(api.Deps{
 		Store: st, Ingest: in, Poller: poller, Prober: prober, Web: webFS,
 		Resolver: newResolver(cfg.dnsServer), Version: version, Retention: cfg.retention, Log: log,
+		WANDownBps: cfg.wanDownBps, WANUpBps: cfg.wanUpBps,
 	}).Handler()
 	srv := &http.Server{Addr: cfg.httpAddr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: time.Minute}
 	go func() {

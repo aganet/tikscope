@@ -44,8 +44,7 @@ export const system = {
         ["CPU load", `${router.cpu_load}%`],
         ["Memory used", `${fmtBytes(router.total_memory - router.free_memory)} of ${fmtBytes(router.total_memory)}`],
         router.total_hdd ? ["Storage used", `${fmtBytes(router.total_hdd - router.free_hdd)} of ${fmtBytes(router.total_hdd)}`] : null,
-        router.temperature !== undefined && router.temperature !== null ? ["Temperature", `${router.temperature} C`] : null,
-        router.voltage ? ["Voltage", `${router.voltage} V`] : null,
+        ...Object.entries(router.health || {}).map(([k, v]) => [k.replace(/-/g, " "), v]),
         ["Connections", router.max_connections ? `${fmtInt(router.connections)} of ${fmtInt(router.max_connections)}` : fmtInt(router.connections)],
         ["WAN interface", router.wan || "not detected"],
         ["DNS servers", [router.dns_servers, router.dns_dynamic_servers].filter(Boolean).join(", ") || "-"],
@@ -54,6 +53,7 @@ export const system = {
         ["Kid Control", router.kid_control ? "enabled, per-device bandwidth available" : "not enabled"],
         ["Wi-Fi clients", fmtInt((router.wifi_clients || []).length)],
       ].filter(Boolean)),
+        router.pools && router.pools.length ? [h("h3", { style: { margin: "14px 0 6px" } }, "DHCP pools"), kv(router.pools.map((p) => [`${p.name} (${p.ranges})`, `${fmtInt(p.used)} of ${fmtInt(p.size)} used, ${p.used_pct.toFixed(0)}%`]))] : null,
         router.adlists && router.adlists.length ? [h("h3", { style: { margin: "14px 0 6px" } }, "Adlists"), kv(router.adlists.map((a) => [a.url.replace(/^https?:\/\//, ""), `${fmtInt(a.matches)} hits, ${fmtInt(a.names)} names`]))] : null,
         router.error ? h("p", { class: "muted mono", style: { marginTop: "10px" } }, `Partial poll: ${router.error}`) : null);
     }

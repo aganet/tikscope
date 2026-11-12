@@ -9,31 +9,55 @@ derived from all three. SQLite storage, embedded web UI, no other services.
 
 - **Issues**: packet loss or latency spikes to probe targets, DNS failure rate,
   slow or missing DNS answers, link flaps and interface errors, high CPU,
-  memory or connection table usage, WAN interface down, router log errors,
-  and a stalled log stream.
+  memory or connection table usage, WAN interface down, Netwatch hosts down,
+  silent WireGuard peers, DHCP pools almost full, router log errors, and a
+  stalled log stream.
 - **DNS**: every query with client, domain, record type, outcome (`ok`,
   `nodata`, `nxdomain`, `servfail`, `blocked`, `error`), the answer records
   and the response time, taken from RouterOS 7 `dns query` and `dns done
   query` log lines. Timelines, outcome and type breakdowns, top and problem
   domains, top clients, a filterable query log with CSV export, and per
   client and per domain drill downs with a live "resolve now".
-- **Network**: download and upload per interface, interface table with
-  errors and link downs, CPU, memory and connection history, ICMP and DNS
-  probe latency and loss.
+- **Network**: download and upload speedometers and per interface graphs,
+  interface table with negotiated link rate, errors, drops and link downs,
+  CPU, memory and connection history, WireGuard peers with handshake age and
+  traffic, Netwatch hosts, ICMP and DNS probe latency and loss.
 - **Devices**: every known client with name and MAC (DHCP log lines, DHCP
   leases, ARP, IPv6 neighbours), DNS activity, per device bandwidth (Kid
   Control) and Wi-Fi signal.
 - **Events**: the router log with severity, search and paging.
-- **System**: collector counters, router identity, version, uptime,
-  temperature, DNS cache, adlists, probe state.
+- **System**: collector counters, router identity, version, uptime, every
+  health sensor, DHCP pool usage, DNS cache, adlists, probe state.
 
 Time ranges from 1 hour to 30 days, light and dark themes, works on phones.
+
+## Screenshots
+
+Overview: issues, speedometers for the WAN, per interface graphs, reachability, DNS.
+
+![Overview](docs/overview.png)
+
+Network: throughput with peak bands, interfaces with link rate, errors and
+drops, CPU, memory and connections, WireGuard peers, Netwatch, probes.
+
+![Network](docs/network.png)
+
+DNS analytics and the device drill-down with bandwidth and Wi-Fi signal.
+
+![DNS](docs/dns.png)
+
+![Device](docs/device-detail.png)
+
+Dark theme:
+
+![Overview, dark](docs/overview-dark.png)
 
 ## Quick start
 
 ```bash
 git clone https://github.com/aganet/tikscope.git
 cd tikscope
+cp .env.example .env    # router credentials, probes, line speed
 docker compose up -d --build
 ```
 
@@ -60,11 +84,15 @@ Default, BSD syslog and ISO timestamp formats are all accepted. Do not add the
 For throughput, health and device names create a read-only API user:
 
 ```text
-/user group add name=tikscope policy=read,rest-api,!local,!telnet,!ssh,!ftp,!reboot,!write,!policy,!test,!winbox,!password,!web,!sniff,!sensitive,!api,!romon
+/user group add name=tikscope policy=read,api,rest-api,test,!local,!telnet,!ssh,!ftp,!reboot,!write,!policy,!winbox,!password,!web,!sniff,!sensitive,!romon
 /user add name=tikscope group=tikscope password=<password>
 ```
 
-and set `MIKROTIK_URL=https://<router-ip>`, `MIKROTIK_USER`,
+REST logs in through the binary API on the user's behalf, so `api` is
+required next to `rest-api` (without it every call fails with
+`not allowed (9)`); `test` covers monitoring reads.
+
+Set `MIKROTIK_URL=https://<router-ip>`, `MIKROTIK_USER`,
 `MIKROTIK_PASSWORD` (plus `MIKROTIK_INSECURE=true` with the default
 self-signed certificate).
 
@@ -89,6 +117,7 @@ license and tracks all LAN devices once one dynamic entry exists:
 | `MIKROTIK_INSECURE` | `false` | Skip TLS certificate verification |
 | `POLL_INTERVAL` | `15s` | REST API poll interval |
 | `WAN_INTERFACE` | auto (default route) | Interface featured on the overview |
+| `WAN_DOWN_MBPS`, `WAN_UP_MBPS` | auto (peak in range) | Line speed used as the speedometer scale |
 | `PROBE_ICMP` | `1.1.1.1,8.8.8.8` | ICMP targets, comma separated, `none` to disable |
 | `PROBE_DNS` | router address when known | Resolvers to query, comma separated |
 | `PROBE_DNS_NAME` | `example.com` | Name resolved by the DNS probes |

@@ -28,7 +28,7 @@ export function hideTooltip() {
   tooltipEl().hidden = true;
 }
 
-function niceMax(v) {
+export function niceMax(v) {
   if (v <= 0) return 1;
   const p = Math.pow(10, Math.floor(Math.log10(v)));
   const n = v / p;
@@ -107,12 +107,12 @@ export function stackedBars(container, { buckets, bucketSecs, series, height = 2
 }
 
 // Lines. series: [{label, color, points: [{ts, v}]}], v may be null for gaps.
-export function lines(container, { series, bucketSecs, height = 200, yFormat = fmtNum, valueFormat = fmtNum, area = false, maxY: fixedMax }) {
+export function lines(container, { series, bucketSecs, height = 200, yFormat = fmtNum, valueFormat = fmtNum, area = false, maxY: fixedMax, band = false }) {
   clear(container);
   container.classList.add("chart");
   const width = Math.max(320, container.clientWidth || 600);
   const times = series[0] ? series[0].points.map((p) => p.ts) : [];
-  const all = series.flatMap((s) => s.points.map((p) => p.v).filter((v) => v !== null && v !== undefined));
+  const all = series.flatMap((s) => s.points.flatMap((p) => [p.v, band ? p.max : null]).filter((v) => v !== null && v !== undefined));
   if (!times.length || !all.length) {
     container.appendChild(h("div", { class: "chart-empty" }, "No data in this range"));
     return;
@@ -122,6 +122,17 @@ export function lines(container, { series, bucketSecs, height = 200, yFormat = f
   const n = times.length;
   const xAt = (i) => PAD.left + ((i + 0.5) / n) * plotW;
   const yAt = (v) => PAD.top + plotH - (Math.min(v, maxY) / maxY) * plotH;
+  if (band) {
+    for (const s of series) {
+      let d = "", open = false;
+      s.points.forEach((p, i) => {
+        if (p.max === null || p.max === undefined) { if (open) d += ` L${xAt(i - 1)} ${PAD.top + plotH} Z`; open = false; return; }
+        if (!open) { d += `M${xAt(i)} ${PAD.top + plotH} L${xAt(i)} ${yAt(p.max)}`; open = true; } else d += ` L${xAt(i)} ${yAt(p.max)}`;
+      });
+      if (open) d += ` L${xAt(s.points.length - 1)} ${PAD.top + plotH} Z`;
+      svg.appendChild(h("svg:path", { d, fill: s.color, "fill-opacity": "0.1" }));
+    }
+  }
   for (const s of series) {
     let d = "", areaD = "", start = null;
     s.points.forEach((p, i) => {
@@ -154,7 +165,8 @@ export function lines(container, { series, bucketSecs, height = 200, yFormat = f
       const v = s.points[i] ? s.points[i].v : null;
       if (v === null || v === undefined) dots[k].style.display = "none";
       else { dots[k].setAttribute("cx", x); dots[k].setAttribute("cy", yAt(v)); dots[k].style.display = ""; }
-      return { label: s.label, value: v === null || v === undefined ? "-" : valueFormat(v), color: s.color };
+      const peak = band && s.points[i] && s.points[i].max !== null && s.points[i].max !== undefined ? ` (peak ${valueFormat(s.points[i].max)})` : "";
+      return { label: s.label, value: v === null || v === undefined ? "-" : valueFormat(v) + peak, color: s.color };
     });
     showTooltip(e.clientX, e.clientY, bucketLabel(times[i], bucketSecs), rows);
   });
@@ -181,11 +193,60 @@ export function sparkline(points, color, width = 120, height = 28) {
 }
 
 export function bucketsToPoints(buckets, field = "avg") {
-  return buckets.map((b) => ({ ts: b.ts, v: b[field] === undefined ? null : b[field] }));
+  return buckets.map((b) => ({ ts: b.ts, v: b[field] === undefined ? null : b[field], max: b.max === undefined ? null : b.max }));
 }
 
 // draw runs after the current DOM update has been attached and laid out, so
 // charts measure their real container width.
 export function draw(fn) {
   requestAnimationFrame(fn);
+}
+
+// Speedometer: a 270 degree arc opening at the bottom, the live value in the
+// centre, major ticks labelled outside the arc and a marker at the tip.
+export function gauge(container, { value, max, label, color, format, sub }) {
+  clear(container);
+  container.classList.add("gauge");
+  const W = 320, H = 250, cx = 160, cy = 130, r = 90, stroke = 14;
+  const tf = (x) => format(x).replace(/\.0 /, " ");
+  const start = 135, end = 405;
+  const rad = (deg) => (deg * Math.PI) / 180;
+  const point = (deg, rr) => [cx + rr * Math.cos(rad(deg)), cy + rr * Math.sin(rad(deg))];
+  const arc = (from, to, rr) => {
+    const [x1, y1] = point(from, rr), [x2, y2] = point(to, rr);
+    return `M${x1.toFixed(2)} ${y1.toFixed(2)} A${rr} ${rr} 0 ${to - from > 180 ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+  };
+  const v = value === null || value === undefined ? 0 : value;
+  const frac = Math.max(0, Math.min(1, max > 0 ? v / max : 0));
+  const angle = start + frac * (end - start);
+  const svg = h("svg:svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": `${label} ${format(v)} of ${format(max)}` });
+  const gid = `g${Math.random().toString(36).slice(2, 8)}`;
+  const defs = h("svg:defs");
+  const grad = h("svg:linearGradient", { id: gid, x1: "0", y1: "1", x2: "1", y2: "0" });
+  grad.appendChild(h("svg:stop", { offset: "0", "stop-color": color, "stop-opacity": "0.55" }));
+  grad.appendChild(h("svg:stop", { offset: "1", "stop-color": color }));
+  defs.appendChild(grad);
+  svg.appendChild(defs);
+  svg.appendChild(h("svg:path", { d: arc(start, end, r), fill: "none", stroke: "var(--surface-2)", "stroke-width": stroke, "stroke-linecap": "round" }));
+  for (let i = 0; i <= 20; i++) {
+    const a = start + (i / 20) * (end - start);
+    const major = i % 5 === 0;
+    const [x1, y1] = point(a, r + stroke / 2 + 4), [x2, y2] = point(a, r + stroke / 2 + (major ? 11 : 7));
+    svg.appendChild(h("svg:line", { x1, y1, x2, y2, stroke: "var(--muted)", "stroke-width": major ? "1.5" : "1", "stroke-opacity": major ? "1" : "0.6" }));
+    if (major) {
+      const [tx, ty] = point(a, r + stroke / 2 + 24);
+      const c = Math.cos(rad(a));
+      const anchor = Math.abs(c) < 0.3 ? "middle" : c < 0 ? "end" : "start";
+      svg.appendChild(h("svg:text", { x: tx, y: ty + 4, "text-anchor": anchor, class: "tick" }, tf((i / 20) * max)));
+    }
+  }
+  if (frac > 0.002) {
+    svg.appendChild(h("svg:path", { d: arc(start, angle, r), fill: "none", stroke: `url(#${gid})`, "stroke-width": stroke, "stroke-linecap": "round" }));
+    const [mx, my] = point(angle, r);
+    svg.appendChild(h("svg:circle", { cx: mx, cy: my, r: stroke / 2 + 3, fill: "var(--surface)", stroke: color, "stroke-width": "3" }));
+  }
+  svg.appendChild(h("svg:text", { x: cx, y: cy + 2, "text-anchor": "middle", class: "value" }, format(v).split(" ")[0]));
+  svg.appendChild(h("svg:text", { x: cx, y: cy + 24, "text-anchor": "middle", class: "unit" }, format(v).split(" ")[1] || ""));
+  container.appendChild(svg);
+  container.appendChild(h("div", { class: "gauge-label" }, h("b", null, label), sub ? h("span", { class: "muted" }, sub) : null));
 }

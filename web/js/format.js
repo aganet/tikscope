@@ -33,6 +33,11 @@ export function fmtBps(bps) {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+// Wi-Fi rates arrive as "433Mbps" on wireless and as plain bits per second on wifi.
+export function fmtRate(s) {
+  return /^\d+$/.test(String(s)) ? fmtBps(Number(s)) : String(s);
+}
+
 export function fmtDateTime(ts) {
   return new Date(ts * 1000).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
