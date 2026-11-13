@@ -50,7 +50,8 @@ DNS analytics and the device drill-down with bandwidth and Wi-Fi signal.
 ![Device](docs/device-detail.png)
 
 Wall mode (`#wall`): edge to edge for a TV or a spare monitor, with a clock,
-issue strip and fullscreen button.
+issue strip and fullscreen button. It fits the screen without scrolling and
+scales up on large displays.
 
 ![Wall](docs/wall.png)
 
