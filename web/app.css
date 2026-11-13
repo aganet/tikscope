@@ -85,9 +85,9 @@ select:focus-visible, input:focus-visible, button:focus-visible, a:focus-visible
 
 .topbar { max-width: 1280px; margin: 0 auto; padding: 22px 0 14px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand-mark { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), #8ab8ff); box-shadow: 0 8px 20px -8px var(--accent); position: relative; }
-.brand-mark::after { content: ""; position: absolute; inset: 11px; border: 2.5px solid #fff; border-radius: 50%; }
-.brand-mark::before { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; background: #fff; border-radius: 50%; }
+.brand-mark { width: 48px; height: 48px; flex: none; background: url(logo.svg) center / contain no-repeat; }
+.brand h1 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.tagline { font-size: 10px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--text-2); }
 .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .refresh { display: flex; align-items: center; height: 36px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 0 4px; }
 .refresh select { border: 0; height: 30px; background-color: var(--surface); padding: 0 6px; }
@@ -263,7 +263,7 @@ td.nowrap { white-space: nowrap; }
 .probe .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
 .probe .nums { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); margin-bottom: 6px; flex-wrap: wrap; }
 .probe .nums b { color: var(--text); font-weight: 600; }
-@media (max-width: 640px) { body { padding: 0 12px 40px; } .card { padding: 14px; } .drawer-panel { padding: 16px 14px 32px; } }
+@media (max-width: 640px) { body { padding: 0 12px 40px; } .brand h1 .tagline { display: none; } .card { padding: 14px; } .drawer-panel { padding: 16px 14px 32px; } }
 
 .gauge { display: flex; flex-direction: column; align-items: center; }
 .gauge svg { display: block; width: 100%; max-width: 420px; height: auto; overflow: visible; }
@@ -300,9 +300,7 @@ body.wall .card { padding: 14px; }
 body.wall .card-head { margin-bottom: 8px; }
 .wall-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 2px 0; flex-wrap: wrap; }
 .wall-title { display: flex; align-items: center; gap: 10px; font-size: 18px; }
-.brand-mark.small { width: 30px; height: 30px; border-radius: 9px; }
-.brand-mark.small::after { inset: 7px; border-width: 2px; }
-.brand-mark.small::before { width: 4px; height: 4px; margin: -2px; }
+.brand-mark.small { width: 32px; height: 32px; }
 .wall-issues { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; justify-content: center; }
 .wall-issue { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-size: 13px; font-weight: 500; }
 .wall-issue i { width: 9px; height: 9px; border-radius: 50%; }
