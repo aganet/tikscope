@@ -3,28 +3,16 @@ services:
     container_name: tikscope
     build: .
     restart: unless-stopped
+    # NET_RAW for the ICMP probes, nothing else.
     cap_drop: [ALL]
-    cap_add: [NET_RAW, NET_BIND_SERVICE]
+    cap_add: [NET_RAW]
     security_opt: [no-new-privileges:true]
     ports:
       - "3000:3000"
       - "5354:5354/udp"
     volumes:
       - ./data:/data
-    environment:
-      TZ: ${TZ:-UTC}
-      RETENTION: ${RETENTION:-7d}
-      # RouterOS REST API: throughput, health, connections, leases, Kid Control, Wi-Fi.
-      MIKROTIK_URL: ${MIKROTIK_URL:-}
-      MIKROTIK_USER: ${MIKROTIK_USER:-}
-      MIKROTIK_PASSWORD: ${MIKROTIK_PASSWORD:-}
-      MIKROTIK_INSECURE: ${MIKROTIK_INSECURE:-false}
-      # Account creation token; random and logged when empty.
-      SETUP_TOKEN: ${SETUP_TOKEN:-}
-      # Only accept syslog from the router (recommended).
-      SYSLOG_SOURCES: ${SYSLOG_SOURCES:-}
-      # Reachability probes from the container.
-      PROBE_ICMP: ${PROBE_ICMP:-1.1.1.1,8.8.8.8}
-      PROBE_DNS: ${PROBE_DNS:-}
-      # Router poll rates; 1s keeps the speedometers live.
-      POLL_INTERVAL: ${POLL_INTERVAL:-5s}
+    # Every variable in .env (copy .env.example) reaches the collector.
+    env_file:
+      - path: .env
+        required: false

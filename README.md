@@ -1,51 +1,51 @@
 # tikscope
 
-A monitoring dashboard for MikroTik routers in one small Go binary: DNS
-analytics from the router's log stream, throughput and health from the REST
-API, reachability probes from the collector, and a list of current issues
-derived from all three. SQLite storage, embedded web UI, no other services.
+Monitoring for MikroTik routers in one small Go binary: DNS analytics from
+the router's log stream, throughput and health from the REST API,
+reachability probes from the collector, and a list of current issues derived
+from all three. SQLite storage, embedded web UI, no other services.
 
 ## What it shows
 
-- **Issues**: packet loss or latency spikes to probe targets, DNS failure rate,
-  slow or missing DNS answers, link flaps and interface errors, high CPU,
-  memory or connection table usage, WAN interface down, Netwatch hosts down,
-  silent WireGuard peers, DHCP pools almost full, router log errors, and a
+- **Issues**: packet loss or latency spikes to probe targets, DNS failure
+  rate, slow or missing DNS answers, link flaps and interface errors, high
+  CPU, memory or connection table usage, WAN interface down, Netwatch hosts
+  down, silent WireGuard peers, DHCP pools almost full, router log errors,
   stalled log stream.
 - **DNS**: every query with client, domain, record type, outcome (`ok`,
-  `nodata`, `nxdomain`, `servfail`, `blocked`, `error`), the answer records
-  and the response time, taken from RouterOS 7 `dns query` and `dns done
-  query` log lines. Timelines, outcome and type breakdowns, top and problem
-  domains, top clients, a filterable query log with CSV export, and per
-  client and per domain drill downs with a live "resolve now".
-- **Network**: download and upload speedometers and per interface graphs,
-  interface table with negotiated link rate, errors, drops and link downs,
-  CPU, memory and connection history, WireGuard peers with handshake age and
-  traffic, Netwatch hosts, ICMP and DNS probe latency and loss.
-- **Devices**: every known client with name and MAC (DHCP log lines, DHCP
-  leases, ARP, IPv6 neighbours), DNS activity, per device bandwidth (Kid
-  Control) and Wi-Fi signal.
+  `nodata`, `nxdomain`, `servfail`, `blocked`, `error`), answer records and
+  response time, from RouterOS 7 `dns query` and `dns done query` log lines.
+  Timelines, outcome and type breakdowns, top and problem domains, top
+  clients, a filterable query log with CSV export, per client and per domain
+  drill downs with a live "resolve now".
+- **Network**: download and upload speedometers, per interface graphs,
+  interface table with link rate, errors, drops and link downs, CPU, memory
+  and connection history, WireGuard peers, Netwatch hosts, ICMP and DNS probe
+  latency and loss.
+- **Devices**: every known client with name and MAC (DHCP log lines, leases,
+  ARP, IPv6 neighbours), DNS activity, per device bandwidth (Kid Control) and
+  Wi-Fi signal.
 - **Events**: the router log with severity, search and paging.
-- **System**: collector counters, router identity, version, uptime, every
-  health sensor, DHCP pool usage, DNS cache, adlists, probe state.
+- **System**: collector counters, router identity, version, uptime, health
+  sensors, DHCP pool usage, DNS cache, adlists, probe state.
 
-Time ranges from 1 hour to 30 days, light and dark themes, works on phones,
-and a wall mode that fits any screen. Every chart scales to its own peak,
-the speedometers to the configured line speed or the peak in range, and the
-"no issues" banner can be dismissed.
+Time ranges from 1 hour to 30 days. Light and dark themes in Grafana's
+colors. Every chart scales to its own peak, the speedometers to the line
+speed or the peak in range. Refreshes are seamless. Works on phones, and a
+wall mode (`#wall`) fits any screen without scrolling.
 
 ## Screenshots
 
-Overview: issues, speedometers for the WAN, per interface graphs, reachability, DNS.
+Overview: issues, WAN speedometers, interfaces, reachability, DNS.
 
 ![Overview](docs/overview.png)
 
-Network: throughput with peak bands, interfaces with link rate, errors and
-drops, CPU, memory and connections, WireGuard peers, Netwatch, probes.
+Network: throughput with peak bands, interfaces, CPU, memory, connections,
+WireGuard, Netwatch, probes.
 
 ![Network](docs/network.png)
 
-DNS analytics and the device drill-down with bandwidth and Wi-Fi signal.
+DNS analytics and a device drill-down.
 
 ![DNS](docs/dns.png)
 
@@ -55,9 +55,8 @@ System: collector counters, log stream, router snapshot, probes.
 
 ![System](docs/system.png)
 
-Wall mode (`#wall`): edge to edge for a TV or a spare monitor, with a clock,
-issue strip and fullscreen button. It fits the screen without scrolling and
-scales up on large displays.
+Wall mode for a TV or a spare monitor: clock, issue strip, fullscreen
+button, scales up on large displays.
 
 ![Wall](docs/wall.png)
 
@@ -67,9 +66,9 @@ Dark theme:
 
 ## Setup
 
-Four steps: run the collector, point the router's log at it, create a
-read-only API user, verify. Replace `192.168.88.1` (router), `192.168.88.50`
-(collector host) and the subnet with yours.
+Run the collector, point the router's log at it, create a read-only API
+user, verify. Replace `192.168.88.1` (router), `192.168.88.50` (collector)
+and the subnet with yours.
 
 ### 1. Run the collector
 
@@ -94,7 +93,7 @@ docker run -d --name tikscope --restart unless-stopped \
   tikscope
 ```
 
-Binary, no Docker (Go 1.25+ only):
+Binary, no Docker (Go 1.26+):
 
 ```bash
 make build
@@ -102,11 +101,11 @@ set -a; . ./.env; set +a
 ./tikscope
 ```
 
-Dashboard: <http://localhost:3000>. Syslog: UDP 5354. Data: `./data`.
+Dashboard <http://localhost:3000>, syslog UDP 5354, data in `./data`.
 
 ### 2. Send the router log to the collector
 
-Command line (Winbox or WebFig terminal, or SSH):
+Terminal:
 
 ```text
 /system logging action add name=tikscope target=remote remote=192.168.88.50 remote-port=5354
@@ -121,18 +120,18 @@ Winbox / WebFig:
 
 1. **System > Logging**, tab **Actions**, **+**: Name `tikscope`, Type `remote`, Remote Address `192.168.88.50`, Remote Port `5354`, OK.
 2. Tab **Rules**, **+**: Topics `dns`, Action `tikscope`, OK.
-3. Repeat for `info` (add a second topic `!dns` with the small `-` toggle), `warning`, `error`, `critical`.
+3. Repeat for `info` (add a second topic `!dns` with the `-` toggle), `warning`, `error`, `critical`.
 
 Do not add the `packet` sub topic. Default, BSD syslog and ISO timestamp
 formats are all accepted.
 
 ### 3. Create the read-only API user
 
-Needed for throughput, speedometers, system health, connections, device
-names, Kid Control bandwidth, Wi-Fi, WireGuard, Netwatch and pools. Skip it
-and you still get DNS, events and probes.
+Needed for throughput, speedometers, health, connections, device names, Kid
+Control bandwidth, Wi-Fi, WireGuard, Netwatch and pools. Without it you still
+get DNS, events and probes.
 
-Command line:
+Terminal:
 
 ```text
 # HTTPS service with a self-signed certificate (skip the certificate lines if www-ssl already has one)
@@ -156,9 +155,9 @@ Each `certificate sign` prints `progress: done`; wait for it.
 Winbox / WebFig:
 
 1. **System > Certificates**, **+**: Name `router-ca`, Common Name `router-ca`, tab **Key Usage**: tick only `crl sign` and `key cert. sign`, **Apply**, **Sign**, **Start**, wait for "done", **Close**.
-2. **+** again: Name `router-ssl`, Common Name `router.lan`, Key Usage: tick only `digital signature`, `key encipherment`, `tls server`, **Apply**, **Sign**, choose CA `router-ca`, **Start**, wait, **Close**.
+2. **+** again: Name `router-ssl`, Common Name `router.lan`, Key Usage: tick only `digital signature`, `key encipherment`, `tls server`, **Apply**, **Sign**, CA `router-ca`, **Start**, wait, **Close**.
 3. **IP > Services**, double-click **www-ssl**: untick Disabled, Certificate `router-ssl`, OK.
-4. **IP > Firewall**, tab **Filter Rules**, **+**: Chain `input`, Protocol `tcp`, Dst. Port `443`, Src. Address `192.168.88.0/24`, tab **Action** `accept`, OK, then drag the rule to the top.
+4. **IP > Firewall**, tab **Filter Rules**, **+**: Chain `input`, Protocol `tcp`, Dst. Port `443`, Src. Address `192.168.88.0/24`, tab **Action** `accept`, OK, drag the rule to the top.
 5. **System > Users**, tab **Groups**, **+**: Name `tikscope`, tick only **read**, **api**, **rest-api**, **test**, OK.
 6. Tab **Users**, **+**: Name `tikscope`, Group `tikscope`, Allowed Address `192.168.88.50/32`, Password, OK.
 7. Optional, per device bandwidth: **IP > Kid Control**, tab **Devices**, **+**: Name `all`, MAC Address `00:00:00:00:00:00`, tick **Dynamic**, OK.
@@ -171,24 +170,23 @@ From the collector host:
 curl -k -u tikscope:change-me https://192.168.88.1/rest/system/identity
 ```
 
-must print `{"name":"..."}`. `401` means wrong password, missing `rest-api`
-or the user's address restriction; `500 not allowed` means the group lacks
-`api`; a TLS handshake error means `www-ssl` has no certificate.
+must print `{"name":"..."}`. `401`: wrong password, missing `rest-api` or
+the address restriction. `500 not allowed`: the group lacks `api`. TLS
+handshake error: `www-ssl` has no certificate.
 
-Then open the dashboard. On the first visit it asks you to create the
-account: pick a username, a password of at least 12 characters, and paste
-the setup token from the collector log:
+Open the dashboard. The first visit creates the account: username, a
+password of at least 12 characters, and the setup token from the collector
+log:
 
 ```bash
 docker compose logs tikscope | grep setup_token
 ```
 
-After that the header shows the router name within 15 s, the System tab
-shows the collector counters and the router snapshot, and the DNS tab fills
-as soon as the router sends its first query line.
+The header shows the router name within 15 s, the System tab the collector
+counters and router snapshot, the DNS tab fills with the first query line.
 
 Forgot the password? Set a new one from the server (works while the
-collector is running, signs out that user everywhere):
+collector runs, signs that user out everywhere):
 
 ```bash
 echo -n 'a new long passphrase' | docker compose exec -T tikscope tikscope set-password admin
@@ -196,12 +194,14 @@ echo -n 'a new long passphrase' | docker compose exec -T tikscope tikscope set-p
 
 ## Configuration
 
+Environment variables; with Compose, everything in `.env` is passed through.
+
 | Variable | Default | Description |
 | --- | --- | --- |
 | `HTTP_ADDR` | `:3000` | Dashboard and API listen address |
 | `SYSLOG_ADDR` | `:5354` | UDP syslog listen address |
 | `SYSLOG_SOURCES` | any | Comma separated addresses or CIDRs allowed to send syslog, e.g. `192.168.88.1` |
-| `SETUP_TOKEN` | random, printed in the log | Token required by the account creation page while no account exists |
+| `SETUP_TOKEN` | random, printed in the log | Token the account creation page asks for while no account exists |
 | `DATABASE_PATH` | `./data/tikscope.db` (`/data/tikscope.db` in Docker) | SQLite file |
 | `RETENTION` | `7d` | How long DNS queries are kept |
 | `METRICS_RETENTION` | `30d` | How long samples are kept |
@@ -214,55 +214,48 @@ echo -n 'a new long passphrase' | docker compose exec -T tikscope tikscope set-p
 | `WAN_INTERFACE` | auto (default route) | Interface featured on the overview |
 | `WAN_DOWN_MBPS`, `WAN_UP_MBPS` | auto (peak in range) | Line speed used as the speedometer scale |
 | `PROBE_ICMP` | `1.1.1.1,8.8.8.8` | ICMP targets, comma separated, `none` to disable |
-| `PROBE_DNS` | router address when known | Resolvers to query, comma separated |
+| `PROBE_DNS` | `DNS_SERVER`, else the router | Resolvers to query, comma separated |
 | `PROBE_DNS_NAME` | `example.com` | Name resolved by the DNS probes |
 | `PROBE_INTERVAL` | `10s` | Probe interval |
 | `DNS_SERVER` | system resolver | Resolver for "resolve now" |
 | `LOG_LEVEL` | `info` | `debug` logs every request |
 | `TZ` | `UTC` | Time zone for logs and CSV exports |
 
-## Security notes
+## Security
 
-- The dashboard requires a login. The first visitor creates the account
-  with the setup token from the log; after that registration is closed and
-  further accounts are only added with `tikscope set-password`.
+- Login required. The first visitor creates the account with the setup token
+  from the log; after that registration is closed and accounts are only
+  added with `tikscope set-password`.
 - Passwords are hashed with Argon2id (64 MiB, 3 passes, 4 lanes, random
-  16-byte salt). Hashes record their parameters, so stronger settings in a
-  future version are applied on the next login.
-- Sessions are 32 random bytes in an `HttpOnly`, `SameSite=Strict` cookie
-  (`Secure` when served over TLS or behind an `X-Forwarded-Proto: https`
-  proxy). Only the SHA-256 of the token is stored, so a copy of the database
-  does not grant access. Sessions last 30 days, expire after 7 idle days and
-  are revoked on logout and on password change.
+  16-byte salt); hashes record their parameters, so stronger settings in a
+  future version apply on the next login.
+- Sessions are 32 random bytes in an `HttpOnly`, `SameSite=Strict` cookie,
+  `Secure` over TLS or behind an `X-Forwarded-Proto: https` proxy. Only the
+  SHA-256 of the token is stored. Sessions last 30 days, expire after 7 idle
+  days, and are revoked on logout and password change.
 - Login is throttled per client address and per username: after 5 failures
   the next attempt waits 30 s, doubling up to 1 h. Unknown usernames take as
   long to reject as wrong passwords.
-- State-changing requests must come from the same origin (fetch metadata and
-  `Origin` are checked) with a JSON body, which browsers cannot send
-  cross-site without CORS; combined with the strict cookie that covers CSRF.
-- Pages are served with a strict Content Security Policy (no inline or
-  remote scripts), `X-Frame-Options: DENY` and `nosniff`.
-- The login still travels in clear text on plain HTTP. On anything but a
-  trusted LAN put the dashboard behind a TLS reverse proxy.
-- Set `SYSLOG_SOURCES` to the router address so forged syslog from other
-  hosts is dropped (UDP has no sender authentication).
-- The API user is read-only and should be pinned to the collector's address
-  (step 3 above). `MIKROTIK_INSECURE=true` disables certificate checks for
-  the router's self-signed certificate; install a real certificate on the
-  router to turn it off.
-- The compose file drops all Linux capabilities except `NET_RAW` (ICMP
-  probes) and `NET_BIND_SERVICE`, and sets `no-new-privileges`.
-- `govulncheck` and `trivy` run clean at release time; `make audit` runs both.
-
-ICMP probes use a raw socket when running as root or with `CAP_NET_RAW`
-(the default in the container) and fall back to the unprivileged datagram
-socket, which requires `net.ipv4.ping_group_range` to include the process
-group.
+- State-changing requests must come from the same origin with a JSON body;
+  with the strict cookie that covers CSRF. Strict Content Security Policy
+  (no inline or remote scripts), `X-Frame-Options: DENY`, `nosniff`.
+- The login travels in clear text on plain HTTP; outside a trusted LAN put
+  the dashboard behind a TLS reverse proxy.
+- Set `SYSLOG_SOURCES` to the router address; UDP has no sender
+  authentication.
+- The API user is read-only and pinned to the collector's address (step 3).
+  `MIKROTIK_INSECURE=true` disables certificate checks for the router's
+  self-signed certificate; install a real one to turn it off.
+- The compose file drops every capability except `NET_RAW` (ICMP probes)
+  and sets `no-new-privileges`. Without `NET_RAW` the probes fall back to
+  unprivileged ICMP sockets, which need `net.ipv4.ping_group_range` to
+  include the process group.
+- `make audit` runs `govulncheck` and `trivy`.
 
 ## API
 
-All endpoints except `/healthz` and `/api/auth/*` need the session cookie
-and take `range` (`1h`, `6h`, `24h`, `7d`, `30d`; default `24h`).
+Every endpoint except `/healthz` and `/api/auth/*` needs the session cookie
+and takes `range` (`1h`, `6h`, `24h`, `7d`, `30d`; default `24h`).
 
 | Endpoint | Returns |
 | --- | --- |
@@ -285,11 +278,11 @@ and take `range` (`1h`, `6h`, `24h`, `7d`, `30d`; default `24h`).
 | `POST /api/auth/login`, `POST /api/auth/logout` | start and end a session |
 | `POST /api/auth/password` | change the password (`current`, `new`) |
 
-Metric names: `iface.rx_bps`, `iface.tx_bps`, `iface.errors`,
-`iface.link_downs`, `dev.rx_bps`, `dev.tx_bps`, `sys.cpu`,
-`sys.mem_used_pct`, `sys.connections`, `sys.temperature`, `sys.voltage`,
-`wifi.signal`, `icmp.rtt_ms`, `icmp.loss`, `dnsprobe.rtt_ms`,
-`dnsprobe.loss`.
+Metrics: `iface.rx_bps`, `iface.tx_bps`, `iface.errors`, `iface.drops`,
+`iface.link_downs`, `dev.rx_bps`, `dev.tx_bps`, `wg.rx_bps`, `wg.tx_bps`,
+`sys.cpu`, `sys.mem_used_pct`, `sys.connections`, `sys.temperature`,
+`sys.voltage`, `health.<sensor>`, `pool.used_pct`, `wifi.signal`,
+`icmp.rtt_ms`, `icmp.loss`, `dnsprobe.rtt_ms`, `dnsprobe.loss`.
 
 ## Development
 
@@ -298,6 +291,7 @@ make test     # go vet, go test -race, JS syntax check
 make build    # static binary with the UI embedded
 ./tikscope    # http://localhost:3000, syslog on :5354, data in ./data
 ./tikscope set-password admin   # new password on stdin; creates the user if needed
+./tikscope version
 ```
 
 Feed test lines without a router:

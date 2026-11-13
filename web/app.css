@@ -1,51 +1,54 @@
+/* Colors follow Grafana: its light and dark surfaces and text, the classic
+   series palette (blue, orange, purple, green) and its status hues. */
 :root {
   color-scheme: light;
-  --bg: #f4f5fa;
+  --bg: #f4f5f5;
   --surface: #ffffff;
-  --surface-2: #f0f2f8;
-  --border: #e1e4ef;
-  --text: #141a2e;
-  --text-2: #5b6178;
-  --muted: #8a90a6;
-  --accent: #4f5bd5;
+  --surface-2: #f0f1f2;
+  --border: #e5e5e6;
+  --text: #24292e;
+  --text-2: #5a5f64;
+  --muted: #929496;
+  --accent: #3871dc;
   --accent-text: #ffffff;
-  --grid: #e3e5ee;
-  --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px -12px rgba(16, 24, 40, .14);
-  --glow: rgba(79, 91, 213, .14);
-  --viz-1: #2a78d6;
-  --viz-2: #eb6834;
-  --viz-3: #1baf7a;
-  --viz-4: #eda100;
-  --good: #0ca30c;
-  --warning: #fab219;
-  --serious: #ec835a;
-  --critical: #d03b3b;
-  --neutral: #898781;
-  --chip-blue-bg: rgba(42, 120, 214, .13); --chip-blue: #2a6fd0;
-  --chip-green-bg: rgba(12, 163, 12, .13); --chip-green: #0c8a0c;
-  --chip-violet-bg: rgba(124, 58, 237, .13); --chip-violet: #7c3aed;
-  --chip-amber-bg: rgba(245, 158, 11, .16); --chip-amber: #c27803;
-  --chip-sky-bg: rgba(14, 165, 233, .13); --chip-sky: #0284c7;
-  --chip-rose-bg: rgba(225, 29, 72, .12); --chip-rose: #d12a5c;
+  --grid: #e9eaeb;
+  --shadow: 0 1px 2px rgba(36, 41, 46, .04), 0 8px 24px -12px rgba(36, 41, 46, .12);
+  --viz-1: #3274d9;
+  --viz-2: #ff780a;
+  --viz-3: #8f3bb8;
+  --viz-4: #56a64b;
+  --good: #37872d;
+  --warning: #e0b400;
+  --serious: #ff780a;
+  --critical: #e02f44;
+  --neutral: #7b8087;
+  --chip-blue-bg: rgba(87, 148, 242, .16); --chip-blue: #1f60c4;
+  --chip-green-bg: rgba(115, 191, 105, .2); --chip-green: #37872d;
+  --chip-violet-bg: rgba(184, 119, 217, .18); --chip-violet: #7d1ea5;
+  --chip-amber-bg: rgba(255, 152, 48, .2); --chip-amber: #e05a00;
+  --chip-sky-bg: rgba(138, 184, 255, .22); --chip-sky: #3274d9;
+  --chip-rose-bg: rgba(242, 73, 92, .14); --chip-rose: #c4162a;
   --radius: 14px;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #0c0f1a; --surface: #141829; --surface-2: #1b2036; --border: #262c45; --text: #e8eaf4; --text-2: #aab0c8;
-    --muted: #7d849f; --accent: #8b94ff; --accent-text: #0c0f1a; --grid: #262b3d;
-    --shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 12px 32px -16px rgba(0,0,0,.6); --glow: rgba(139,148,255,.14);
-    --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500;
-    --chip-blue: #8dc0ff; --chip-green: #7ee07e; --chip-violet: #c4b1ff; --chip-amber: #ffd37a; --chip-sky: #8ad8ff; --chip-rose: #ff9fbd;
+    --bg: #111217; --surface: #181b1f; --surface-2: #22252b; --border: #2d3036; --text: #ccccdc; --text-2: #9496a5;
+    --muted: #72737d; --accent: #3d71d9; --accent-text: #ffffff; --grid: #25272c;
+    --shadow: 0 1px 0 rgba(255,255,255,.02) inset, 0 12px 32px -16px rgba(0,0,0,.6);
+    --viz-1: #5794f2; --viz-2: #ff9830; --viz-3: #b877d9; --viz-4: #73bf69;
+    --good: #73bf69; --warning: #fade2a; --serious: #ff9830; --critical: #f2495c; --neutral: #8e8f9b;
+    --chip-blue: #8ab8ff; --chip-green: #96d98d; --chip-violet: #ca95e5; --chip-amber: #ffb357; --chip-sky: #c0d8ff; --chip-rose: #ff7383;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0c0f1a; --surface: #141829; --surface-2: #1b2036; --border: #262c45; --text: #e8eaf4; --text-2: #aab0c8;
-  --muted: #7d849f; --accent: #8b94ff; --accent-text: #0c0f1a; --grid: #262b3d;
-  --shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 12px 32px -16px rgba(0,0,0,.6); --glow: rgba(139,148,255,.14);
-  --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500;
-  --chip-blue: #8dc0ff; --chip-green: #7ee07e; --chip-violet: #c4b1ff; --chip-amber: #ffd37a; --chip-sky: #8ad8ff; --chip-rose: #ff9fbd;
+  --bg: #111217; --surface: #181b1f; --surface-2: #22252b; --border: #2d3036; --text: #ccccdc; --text-2: #9496a5;
+  --muted: #72737d; --accent: #3d71d9; --accent-text: #ffffff; --grid: #25272c;
+  --shadow: 0 1px 0 rgba(255,255,255,.02) inset, 0 12px 32px -16px rgba(0,0,0,.6);
+  --viz-1: #5794f2; --viz-2: #ff9830; --viz-3: #b877d9; --viz-4: #73bf69;
+  --good: #73bf69; --warning: #fade2a; --serious: #ff9830; --critical: #f2495c; --neutral: #8e8f9b;
+  --chip-blue: #8ab8ff; --chip-green: #96d98d; --chip-violet: #ca95e5; --chip-amber: #ffb357; --chip-sky: #c0d8ff; --chip-rose: #ff7383;
 }
 
 * { box-sizing: border-box; }
@@ -53,9 +56,6 @@ html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; padding: 0 16px 48px; background: var(--bg); color: var(--text);
   font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background-image: radial-gradient(60rem 28rem at 15% -10%, var(--glow), transparent 70%),
-                    radial-gradient(40rem 20rem at 95% 0%, rgba(20,184,230,.08), transparent 70%);
-  background-attachment: fixed;
 }
 h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
 h1 { font-size: 22px; }
@@ -85,7 +85,7 @@ select:focus-visible, input:focus-visible, button:focus-visible, a:focus-visible
 
 .topbar { max-width: 1280px; margin: 0 auto; padding: 22px 0 14px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand-mark { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), #14b8e6); box-shadow: 0 8px 20px -8px var(--accent); position: relative; }
+.brand-mark { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), #8ab8ff); box-shadow: 0 8px 20px -8px var(--accent); position: relative; }
 .brand-mark::after { content: ""; position: absolute; inset: 11px; border: 2.5px solid #fff; border-radius: 50%; }
 .brand-mark::before { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; background: #fff; border-radius: 50%; }
 .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
