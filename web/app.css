@@ -160,7 +160,9 @@ main { max-width: 1280px; margin: 0 auto; position: relative; }
 .ranked .rank { width: 18px; text-align: right; color: var(--muted); font-size: 11px; flex: none; padding-top: 2px; }
 .ranked .body { flex: 1; min-width: 0; }
 .ranked .line { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
-.ranked .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranked .name { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranked li { min-width: 0; }
+.ranked .line .num { flex: none; }
 .ranked .name .mono { color: var(--muted); margin-left: 6px; }
 .ranked .bar { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; margin-top: 5px; }
 .ranked .bar i { display: block; height: 100%; background: var(--viz-1); border-radius: 999px; }
