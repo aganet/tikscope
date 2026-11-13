@@ -46,13 +46,12 @@ async function render(reason = "refresh") {
   state.tab = tab;
   for (const a of document.querySelectorAll("#tabs a")) a.classList.toggle("active", a.dataset.tab === tab);
   document.body.classList.toggle("wall", tab === "wall");
-  main.classList.add("loading");
   try {
     const view = views[tab];
     const data = await view.load(state, ctrl.signal);
     if (ctrl.signal.aborted) return;
     hideTooltip();
-    replace(main, view.render(data, state, { navigate, openDrawer }));
+    await swapView(view.render(data, state, { navigate, openDrawer }));
     document.getElementById("updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
     main.dataset.lastData = "1";
     if (drawerOpen()) openDrawer(null, state, { refresh: true });
@@ -60,9 +59,18 @@ async function render(reason = "refresh") {
     if (ctrl.signal.aborted) return;
     if (reason === "initial" || !main.dataset.lastData) replace(main, h("div", { class: "error-banner" }, `Could not load data: ${err.message}`));
     document.getElementById("updated").textContent = `Error: ${err.message}`;
-  } finally {
-    if (!ctrl.signal.aborted) main.classList.remove("loading");
   }
+}
+
+// The new view is laid out hidden next to the old one so its charts can
+// measure themselves and draw, then the two are swapped before the next
+// paint. A refresh never shows an empty or half-drawn page.
+async function swapView(content) {
+  const next = h("div", { class: "view pending" }, content);
+  main.appendChild(next);
+  await new Promise(requestAnimationFrame);
+  for (const old of [...main.children]) if (old !== next) old.remove();
+  next.classList.remove("pending");
 }
 
 function schedule() {
