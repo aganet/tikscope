@@ -24,7 +24,7 @@ export const overview = {
       ? h("div", { class: "issues" }, issues.map((i) => h("div", { class: `issue ${i.severity}` },
         h("span", { class: `sev sev-${i.severity}` }),
         h("div", null, h("div", { class: "title" }, i.title), h("div", { class: "detail" }, i.detail)))))
-      : h("div", { class: "all-clear" }, icon("check"), h("div", null, h("b", null, "No issues detected"), h("div", { class: "muted" }, "Probes, DNS answers, interfaces and router logs look normal."))));
+      : allClear());
 
     if (net.router && net.router.identity) {
       blocks.push(networkNow(net, state, { navigate, openDrawer }));
@@ -47,6 +47,20 @@ export const overview = {
     return blocks;
   },
 };
+
+// The all-clear banner is dismissable; the choice persists across the 1s
+// re-renders and page loads.
+const allClearKey = "tikscope.allClearHidden";
+
+function allClear() {
+  let hidden = false;
+  try { hidden = localStorage.getItem(allClearKey) === "1"; } catch {}
+  if (hidden) return null;
+  const el = h("div", { class: "all-clear" }, icon("check"),
+    h("div", null, h("b", null, "No issues detected"), h("div", { class: "muted" }, "Probes, DNS answers, interfaces and router logs look normal.")),
+    h("button", { class: "icon-btn", title: "Hide", "aria-label": "Hide", onclick: () => { try { localStorage.setItem(allClearKey, "1"); } catch {} el.remove(); } }, icon("x")));
+  return el;
+}
 
 // The WAN interface's live rate from the latest poll, falling back to the
 // last timeline bucket.
@@ -78,7 +92,7 @@ export function networkNow(net, state, { navigate, openDrawer }, chartHeight = 2
     probe ? tile({ label: "Latency", value: fmtMs(probe.last_rtt_ms || probe.rtt_avg_ms), detail: probe.loss_pct !== null ? `${probe.target.addr}, ${probe.loss_pct.toFixed(1)}% loss` : probe.target.addr, iconName: "zap", tone: probe.up ? "sky" : "rose", spark: sparkline(probe.rtt.map((b) => b.avg), "var(--viz-1)"), onClick: () => navigate("network") }) : null,
     tile({ label: "Router CPU", value: `${r.cpu_load}%`, detail: r.total_memory ? `${fmtPct(r.total_memory - r.free_memory, r.total_memory, 0)} memory used` : "", iconName: "cpu", tone: "violet", spark: sparkline((net.system.cpu || []).map((b) => b.avg), "var(--viz-1)"), onClick: () => navigate("system") }),
     tile({ label: "Connections", value: fmtNum(r.connections), detail: r.max_connections ? `of ${fmtNum(r.max_connections)} tracked` : "Tracked by the firewall", iconName: "link", tone: "blue", spark: sparkline((net.system.connections || []).map((b) => b.avg), "var(--viz-1)"), onClick: () => navigate("network") }));
-  const chart = h("div");
+  const chart = h("div", { class: "fill", style: { marginTop: "16px" } });
   draw(() => {
     const series = [
       { label: "Download", color: "var(--viz-1)", points: bucketsToPoints(rx) },
@@ -91,7 +105,7 @@ export function networkNow(net, state, { navigate, openDrawer }, chartHeight = 2
     h("div", { class: "card-head" }, sectionTitle("download", "green", `${r.identity} on ${net.wan || "WAN"}`, `Live rate from the last poll, ${bucketText(net.bucket_secs)} averages on the chart`),
       h("button", { class: "btn small", onclick: () => navigate("network") }, "Network details")),
     h("div", { class: "gauges" }, gDown, gUp, stats),
-    h("div", { style: { marginTop: "16px" } }, chart));
+    chart);
 }
 
 export function interfaceCards(net, state, openDrawer, max = 8, chartHeight = 110) {
@@ -99,7 +113,7 @@ export function interfaceCards(net, state, openDrawer, max = 8, chartHeight = 11
   if (!shown.length) return null;
   return card(sectionTitle("router", "violet", "Interfaces", `${shown.length} active of ${net.interfaces.length}`),
     h("div", { class: "ifaces" }, shown.map((i) => {
-      const el = h("div");
+      const el = h("div", { class: "fill" });
       const data = net.all[i.name] || {};
       draw(() => lines(el, { series: [
         { label: "Download", color: "var(--viz-1)", points: bucketsToPoints(data.rx || []) },
@@ -162,7 +176,7 @@ export function throughputChart(net, state, height = 200) {
 }
 
 export function probeChart(net, height = 160) {
-  const el = h("div");
+  const el = h("div", { class: "fill" });
   draw(() => {
     const series = net.probes.map((p, i) => ({ label: `${p.target.kind} ${p.target.addr}`, color: seriesColors[i % seriesColors.length], points: bucketsToPoints(p.rtt) }));
     lines(el, { series, bucketSecs: net.bucket_secs, height, yFormat: (v) => fmtMs(v), valueFormat: fmtMs });

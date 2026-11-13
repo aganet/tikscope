@@ -36,8 +36,21 @@ export function niceMax(v) {
   return step * p;
 }
 
-function yTicks(max) {
-  return [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
+// A chart height is a pixel count or a function of the container, see fillHeight.
+function resolveHeight(height, container) {
+  return typeof height === "function" ? height(container) : height;
+}
+
+// Height for a chart that fills a flex container, minus room for a legend.
+// Falls back to a fixed height when the container has no definite height.
+export function fillHeight(reserve = 0, fallback = 200) {
+  return (el) => (el.clientHeight ? Math.max(40, el.clientHeight - reserve) : fallback);
+}
+
+// Fewer y labels on short charts so they never overlap.
+function yTicks(max, plotH) {
+  const steps = plotH < 24 ? [1] : plotH < 50 ? [0, 1] : plotH < 110 ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1];
+  return steps.map((f) => f * max);
 }
 
 function frame(width, height, bucketSecs, times, maxY, yFormat) {
@@ -45,14 +58,14 @@ function frame(width, height, bucketSecs, times, maxY, yFormat) {
   const plotW = width - PAD.left - PAD.right, plotH = height - PAD.top - PAD.bottom;
   const grid = h("svg:g", { class: "grid" });
   const axis = h("svg:g", { class: "axis" });
-  for (const t of yTicks(maxY)) {
+  for (const t of yTicks(maxY, plotH)) {
     const y = PAD.top + plotH - (t / maxY) * plotH;
     grid.appendChild(h("svg:line", { x1: PAD.left, x2: PAD.left + plotW, y1: y, y2: y }));
     axis.appendChild(h("svg:text", { x: PAD.left - 6, y: y + 4, "text-anchor": "end" }, yFormat(t)));
   }
   const n = times.length;
   const tf = tickFormatter(bucketSecs);
-  const step = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(plotW / 90))));
+  const step = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(plotW / 90))));
   for (let i = 0; i < n; i += step) {
     const x = PAD.left + ((i + 0.5) / n) * plotW;
     axis.appendChild(h("svg:text", { x, y: height - 6, "text-anchor": "middle" }, tf(times[i])));
@@ -70,7 +83,8 @@ export function legend(series, line = false) {
 export function stackedBars(container, { buckets, bucketSecs, series, height = 220, yFormat = fmtNum, valueFormat = fmtNum }) {
   clear(container);
   container.classList.add("chart");
-  const width = Math.max(320, container.clientWidth || 600);
+  const width = Math.max(120, container.clientWidth || 600);
+  height = resolveHeight(height, container);
   if (!buckets.length) {
     container.appendChild(h("div", { class: "chart-empty" }, "No data in this range"));
     return;
@@ -110,7 +124,8 @@ export function stackedBars(container, { buckets, bucketSecs, series, height = 2
 export function lines(container, { series, bucketSecs, height = 200, yFormat = fmtNum, valueFormat = fmtNum, area = false, maxY: fixedMax, band = false }) {
   clear(container);
   container.classList.add("chart");
-  const width = Math.max(320, container.clientWidth || 600);
+  const width = Math.max(120, container.clientWidth || 600);
+  height = resolveHeight(height, container);
   const times = series[0] ? series[0].points.map((p) => p.ts) : [];
   const all = series.flatMap((s) => s.points.flatMap((p) => [p.v, band ? p.max : null]).filter((v) => v !== null && v !== undefined));
   if (!times.length || !all.length) {
@@ -242,11 +257,10 @@ export function gauge(container, { value, max, label, color, format, sub }) {
       svg.appendChild(h("svg:text", { x: tx, y: ty + 4, "text-anchor": anchor, class: "tick" }, tf((i / 20) * max)));
     }
   }
-  if (frac > 0.002) {
-    svg.appendChild(h("svg:path", { d: arc(start, angle, r), fill: "none", stroke: `url(#${gid})`, "stroke-width": stroke, "stroke-linecap": "round" }));
-    const [mx, my] = point(angle, r);
-    svg.appendChild(h("svg:circle", { cx: mx, cy: my, r: stroke / 2 + 3, fill: "var(--surface)", stroke: color, "stroke-width": "3" }));
-  }
+  // The marker is always drawn so an idle link still shows where the needle is.
+  if (frac > 0.002) svg.appendChild(h("svg:path", { d: arc(start, angle, r), fill: "none", stroke: `url(#${gid})`, "stroke-width": stroke, "stroke-linecap": "round" }));
+  const [mx, my] = point(angle, r);
+  svg.appendChild(h("svg:circle", { cx: mx, cy: my, r: stroke / 2 + 3, fill: "var(--surface)", stroke: color, "stroke-width": "3" }));
   svg.appendChild(h("svg:text", { x: cx, y: cy + 2, "text-anchor": "middle", class: "value" }, format(v).split(" ")[0]));
   svg.appendChild(h("svg:text", { x: cx, y: cy + 24, "text-anchor": "middle", class: "unit" }, format(v).split(" ")[1] || ""));
   container.appendChild(svg);

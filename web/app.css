@@ -143,7 +143,9 @@ main.loading > * { opacity: .7; transition: opacity .15s; }
 .issue.critical { border-color: color-mix(in srgb, var(--critical) 55%, var(--border)); background: color-mix(in srgb, var(--critical) 6%, var(--surface)); }
 .issue.error { border-color: color-mix(in srgb, var(--critical) 35%, var(--border)); }
 .all-clear { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--border)); background: color-mix(in srgb, var(--good) 8%, var(--surface)); }
-.all-clear svg { width: 18px; height: 18px; color: var(--good); }
+.all-clear > svg { width: 18px; height: 18px; color: var(--good); flex: none; }
+.all-clear > div { flex: 1; min-width: 0; }
+.all-clear .icon-btn { border: 0; width: 30px; height: 30px; background: transparent; flex: none; }
 .sev-critical, .sev-error { background: var(--critical); } .sev-warning { background: var(--warning); } .sev-info { background: var(--neutral); }
 
 .ranked { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
@@ -291,7 +293,7 @@ td.nowrap { white-space: nowrap; }
 /* wall mode */
 body.wall { padding: 0 12px 12px; }
 body.wall .topbar, body.wall .tabs { display: none; }
-body.wall main { max-width: none; gap: 12px; }
+body.wall main { max-width: none; margin: 0; gap: 12px; }
 body.wall .card { padding: 14px; }
 body.wall .card-head { margin-bottom: 8px; }
 .wall-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 2px 0; flex-wrap: wrap; }
@@ -307,17 +309,42 @@ body.wall .card-head { margin-bottom: 8px; }
 .wall-issue.ok svg { width: 16px; height: 16px; }
 .wall-actions { display: flex; align-items: center; gap: 8px; }
 .wall-clock { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; margin-right: 6px; }
-.wall-row { display: grid; gap: 12px; align-items: stretch; }
+.wall-row { display: grid; gap: 12px; align-items: stretch; min-height: 0; }
 .wall-row.top { grid-template-columns: 3fr 2fr; }
-.wall-row.bottom { grid-template-columns: 2fr 1.2fr 1fr 1fr 1fr; }
+.wall-row.bottom { grid-template-columns: 1.7fr 1.2fr 1fr 1fr 1fr; }
 .wall-row > .card { min-width: 0; }
-.wall-row .ifaces { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wall-row .ifaces { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 .wall-row .ranked .bar { margin-top: 3px; }
 .wall-event { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 1500px) { .wall-row.bottom { grid-template-columns: 2fr 1.2fr 1fr; } .wall-row.bottom > :nth-child(n+4) { grid-column: span 1; } }
-@media (max-width: 1100px) { .wall-row.top, .wall-row.bottom { grid-template-columns: 1fr; } }
-.wall-probes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-top: 10px; }
+.wall-probes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
 .wall-probes .probe { padding: 8px 10px; }
 .wall-probes .probe .nums { margin-bottom: 0; }
 .wall-sysrow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
 .wall-sys h3 { margin-bottom: 4px; }
+@media (max-width: 1199px) { .wall-row.top { grid-template-columns: 1fr; } .wall-row.bottom { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .wall-row.bottom { grid-template-columns: 1fr; } }
+/* On a real screen the wall never scrolls: the two rows share the height
+   below the strip and every chart stretches to fill its card. */
+@media (min-width: 1200px) and (min-height: 600px) {
+  body.wall { --wall-zoom: 1; zoom: var(--wall-zoom); height: calc(100dvh / var(--wall-zoom)); overflow: hidden; display: flex; flex-direction: column; }
+  body.wall main { flex: 1; min-height: 0; grid-template-rows: auto minmax(0, 3fr) minmax(0, 2fr); }
+  body.wall .wall-row > .card { display: flex; flex-direction: column; overflow: hidden; }
+  body.wall .fill { flex: 1; min-height: 0; }
+  body.wall .gauge svg { max-width: min(420px, calc(30vh / var(--wall-zoom))); }
+  body.wall .gauges .stat-col .tile { padding: 8px 12px; }
+  body.wall .ifaces { flex: 1; min-height: 0; grid-auto-rows: minmax(0, 1fr); }
+  body.wall .iface-card { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  body.wall .wall-row .ranked { overflow: hidden; }
+}
+/* Below 900px tall the gauges shrink and the stat tiles drop their sparklines
+   so the throughput chart keeps its room. */
+@media (min-width: 1200px) and (min-height: 600px) and (max-height: 899px) {
+  body.wall .gauge svg { max-width: min(420px, calc(21vh / var(--wall-zoom))); }
+  body.wall .gauges .stat-col .tile { padding: 4px 10px; }
+  body.wall .gauges .stat-col .tile .spark, body.wall .gauges .stat-col .tile .detail { display: none; }
+  body.wall .gauges .stat-col .tile .value { font-size: 16px; }
+  body.wall .gauges .stat-col .tile .chip { width: 30px; height: 30px; }
+  body.wall .wall-probes { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+}
+@media (min-width: 2400px) { body.wall { --wall-zoom: 1.3; } }
+@media (min-width: 3400px) { body.wall { --wall-zoom: 1.8; } }

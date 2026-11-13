@@ -55,14 +55,14 @@ export const network = {
           { label: "Link downs", right: true, cls: "num", render: (i) => (i.link_downs ? fmtInt(i.link_downs) : "-") },
         ], net.interfaces, { onRow: (i) => openDrawer({ kind: "interface", key: i.name }, state) })));
 
-      const sys = (key, label, fmt, max) => {
+      const sys = (key, label, fmt) => {
         const el = h("div");
-        draw(() => lines(el, { series: [{ label, color: "var(--viz-1)", points: bucketsToPoints(net.system[key] || []) }], bucketSecs: net.bucket_secs, height: 150, yFormat: fmt, valueFormat: fmt, area: true, maxY: max }));
+        draw(() => lines(el, { series: [{ label, color: "var(--viz-1)", points: bucketsToPoints(net.system[key] || []) }], bucketSecs: net.bucket_secs, height: 150, yFormat: fmt, valueFormat: fmt, area: true }));
         return el;
       };
       blocks.push(h("div", { class: "grid cols-3" },
-        card(sectionTitle("cpu", "sky", "CPU load", "Percent"), sys("cpu", "CPU", (x) => `${Math.round(x)}%`, 100)),
-        card(sectionTitle("server", "violet", "Memory used", "Percent of RAM"), sys("mem", "Memory", (x) => `${Math.round(x)}%`, 100)),
+        card(sectionTitle("cpu", "sky", "CPU load", "Percent"), sys("cpu", "CPU", (x) => `${Math.round(x)}%`)),
+        card(sectionTitle("server", "violet", "Memory used", "Percent of RAM"), sys("mem", "Memory", (x) => `${Math.round(x)}%`)),
         card(sectionTitle("link", "blue", "Connections", "Tracked by the firewall"), sys("connections", "Connections", fmtNum))));
     }
 
@@ -94,7 +94,7 @@ export const network = {
         probeChart(net, 200),
         h("div", { class: "probe-grid", style: { marginTop: "14px" } }, net.probes.map((p) => {
           const lossEl = h("div");
-          draw(() => lines(lossEl, { series: [{ label: "Loss", color: "var(--critical)", points: p.loss.map((b) => ({ ts: b.ts, v: b.avg === null ? null : b.avg * 100 })) }], bucketSecs: net.bucket_secs, height: 90, yFormat: (x) => `${Math.round(x)}%`, valueFormat: (x) => `${x.toFixed(1)}%`, area: true, maxY: 100 }));
+          draw(() => lines(lossEl, { series: [{ label: "Loss", color: "var(--critical)", points: p.loss.map((b) => ({ ts: b.ts, v: b.avg === null ? null : b.avg * 100 })) }], bucketSecs: net.bucket_secs, height: 90, yFormat: (x) => `${Math.round(x)}%`, valueFormat: (x) => `${x.toFixed(1)}%`, area: true }));
           return h("div", { class: "probe" },
             h("div", { class: "head" }, h("b", { class: "mono" }, `${p.target.kind} ${p.target.addr}`),
               h("span", { class: "status-pill" }, h("span", { class: "dot", style: { background: p.up ? "var(--good)" : "var(--critical)" } }), p.up ? "up" : "down", h("span", { class: "muted" }, ` since ${fmtAgo(p.since)}`))),

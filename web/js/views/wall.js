@@ -1,5 +1,5 @@
 // Wall mode: a dense, full-width layout for a TV or a spare monitor.
-import { draw, stackedBars, lines, legend, bucketsToPoints } from "../charts.js";
+import { draw, stackedBars, lines, legend, bucketsToPoints, fillHeight } from "../charts.js";
 import { h, icon, card, sectionTitle } from "../dom.js";
 import { api } from "../api.js";
 import { fmtNum, fmtPct, fmtMs, fmtBps, fmtAgo, outcomes, outcomeTotals } from "../format.js";
@@ -34,11 +34,11 @@ export const wall = {
         h("button", { class: "icon-btn", title: "Fullscreen", onclick: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()) }, icon("external")),
         h("button", { class: "btn small", onclick: () => navigate("overview") }, "Exit")));
 
-    const dnsChart = h("div");
+    const dnsChart = h("div", { class: "fill" });
     draw(() => {
       const present = outcomes.filter((o) => dns.timeline.some((b) => b[o.key] > 0));
       const series = present.length ? present : [outcomes[0]];
-      stackedBars(dnsChart, { buckets: dns.timeline, bucketSecs: dns.bucket_secs, series, height: 150 });
+      stackedBars(dnsChart, { buckets: dns.timeline, bucketSecs: dns.bucket_secs, series, height: fillHeight(28, 150) });
       if (series.length > 1) dnsChart.appendChild(legend(series));
     });
     const dnsCard = card(sectionTitle("activity", "blue", "DNS", `${fmtNum(t.queries)} queries, ${fmtPct(problems, t.queries)} problems, ${fmtMs(t.latency_ms)} response`),
@@ -63,25 +63,31 @@ export const wall = {
       h("div", { class: "head" }, h("b", { class: "mono" }, `${p.target.kind} ${p.target.addr}`),
         h("span", { class: "status-pill" }, h("span", { class: "dot", style: { background: p.up ? "var(--good)" : "var(--critical)" } }), p.up ? "up" : "down")),
       h("div", { class: "nums" }, h("span", null, "avg ", h("b", null, fmtMs(p.rtt_avg_ms))), h("span", null, "max ", h("b", null, fmtMs(p.rtt_max_ms))), h("span", null, "loss ", h("b", null, p.loss_pct === null ? "-" : `${p.loss_pct.toFixed(1)}%`))))));
-    const sys = (key, label, fmt, max) => {
+    const sys = (key, label, fmt) => {
       const el = h("div");
-      draw(() => lines(el, { series: [{ label, color: "var(--viz-1)", points: bucketsToPoints(net.system[key] || []) }], bucketSecs: net.bucket_secs, height: 100, yFormat: fmt, valueFormat: fmt, area: true, maxY: max }));
+      draw(() => lines(el, { series: [{ label, color: "var(--viz-1)", points: bucketsToPoints(net.system[key] || []) }], bucketSecs: net.bucket_secs, height: window.innerHeight < 900 ? 60 : 84, yFormat: fmt, valueFormat: fmt, area: true }));
       return h("div", { class: "wall-sys" }, h("h3", null, label), el);
     };
     const systemRow = r && r.identity ? h("div", { class: "wall-sysrow" },
-      sys("cpu", "CPU load", (x) => `${Math.round(x)}%`, 100), sys("mem", "Memory used", (x) => `${Math.round(x)}%`, 100), sys("connections", "Connections", fmtNum)) : null;
+      sys("cpu", "CPU load", (x) => `${Math.round(x)}%`), sys("mem", "Memory used", (x) => `${Math.round(x)}%`), sys("connections", "Connections", fmtNum)) : null;
     const top = h("div", { class: "wall-row top" },
-      r && r.identity ? networkNow(net, state, { navigate, openDrawer }, 230) : card(null, h("p", { class: "empty" }, "Router polling is not configured")),
+      r && r.identity ? networkNow(net, state, { navigate, openDrawer }, fillHeight(28, 230)) : card(null, h("p", { class: "empty" }, "Router polling is not configured")),
       card(sectionTitle("zap", "sky", "Reachability and health", net.probes.length ? "Round trip time from the collector, router load" : "No probes configured"),
-        net.probes.length ? probeChart(net, 200) : h("p", { class: "empty" }, "Set PROBE_ICMP and PROBE_DNS"),
+        net.probes.length ? probeChart(net, fillHeight(28, 200)) : h("p", { class: "empty" }, "Set PROBE_ICMP and PROBE_DNS"),
         net.probes.length ? probeStats : null,
         systemRow));
     const bottom = h("div", { class: "wall-row bottom" },
-      r && r.identity ? interfaceCards(net, state, openDrawer, 6, 90) : null,
+      r && r.identity ? interfaceCards(net, state, openDrawer, interfaceLimit(), fillHeight(0, 90)) : null,
       dnsCard, talkerCard, domainCard, eventCard);
     return [strip, top, bottom];
   },
 };
+
+// Six interface cards fit as three by two on a big screen, four as two by two
+// on a laptop; a resize re-renders the view.
+function interfaceLimit() {
+  return window.innerWidth >= 1600 && window.innerHeight >= 1000 ? 6 : 4;
+}
 
 setInterval(() => {
   const el = document.getElementById("wall-clock");
