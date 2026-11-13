@@ -28,6 +28,51 @@ export function hideTooltip() {
   tooltipEl().hidden = true;
 }
 
+// Dragging across a plot zooms into that span and a double click zooms back
+// out; the app decides what both mean, charts only report them.
+let zoom = null;
+export function onZoom(handlers) {
+  zoom = handlers;
+}
+
+function brush(svg, hover, { width, plotW, plotH, times, bucketSecs }) {
+  if (!zoom || times.length < 2) return;
+  const n = times.length;
+  const sel = h("svg:rect", { class: "brush", y: PAD.top, height: plotH, style: { display: "none" } });
+  svg.insertBefore(sel, hover);
+  const px = (e) => {
+    const box = svg.getBoundingClientRect();
+    return Math.max(PAD.left, Math.min(PAD.left + plotW, ((e.clientX - box.left) / box.width) * width));
+  };
+  const index = (x) => Math.max(0, Math.min(n - 1, Math.floor(((x - PAD.left) / plotW) * n)));
+  let x0 = null;
+  hover.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    x0 = px(e);
+    hover.setPointerCapture(e.pointerId);
+  });
+  hover.addEventListener("pointermove", (e) => {
+    if (x0 === null) return;
+    const x1 = px(e);
+    sel.setAttribute("x", Math.min(x0, x1));
+    sel.setAttribute("width", Math.abs(x1 - x0));
+    sel.style.display = "";
+    hideTooltip();
+  });
+  const cancel = () => { x0 = null; sel.style.display = "none"; };
+  hover.addEventListener("pointerup", (e) => {
+    if (x0 === null) return;
+    const a = x0, b = px(e);
+    cancel();
+    // A plain click is not a selection.
+    if (Math.abs(b - a) < 6) return;
+    const i0 = index(Math.min(a, b)), i1 = index(Math.max(a, b));
+    zoom.into(times[i0], times[i1] + bucketSecs);
+  });
+  hover.addEventListener("pointercancel", cancel);
+  hover.addEventListener("dblclick", () => zoom.out());
+}
+
 export function niceMax(v) {
   if (v <= 0) return 1;
   const p = Math.pow(10, Math.floor(Math.log10(v)));
@@ -117,6 +162,7 @@ export function stackedBars(container, { buckets, bucketSecs, series, height = 2
   });
   svg.appendChild(bars);
   svg.appendChild(hover);
+  brush(svg, hover, { width, plotW, plotH, times: buckets.map((b) => b.ts), bucketSecs });
   container.appendChild(svg);
 }
 
@@ -187,6 +233,7 @@ export function lines(container, { series, bucketSecs, height = 200, yFormat = f
   });
   hover.addEventListener("pointerleave", () => { cross.style.display = "none"; dots.forEach((d) => (d.style.display = "none")); hideTooltip(); });
   svg.appendChild(hover);
+  brush(svg, hover, { width, plotW, plotH, times, bucketSecs });
   container.appendChild(svg);
 }
 

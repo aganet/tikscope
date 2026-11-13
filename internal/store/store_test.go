@@ -54,7 +54,7 @@ func TestDNSReads(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	sum, err := s.DNSSummary(ctx, time.Hour, 10)
+	sum, err := s.DNSSummary(ctx, now.Add(-time.Hour), now, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestMetricsAndEvents(t *testing.T) {
 	s.insertSamples(samples)
 	ctx := context.Background()
 
-	series, err := s.MetricTimeline(ctx, "iface.rx_bps", "", now.Add(-10*time.Minute), 60, now)
+	series, err := s.MetricTimeline(ctx, "iface.rx_bps", "", now.Add(-10*time.Minute), now, 60)
 	if err != nil || len(series) != 1 || series[0].Key != "ether1" || len(series[0].Buckets) != 11 {
 		t.Fatalf("timeline: %+v err=%v", series, err)
 	}
@@ -149,7 +149,7 @@ func TestMetricsAndEvents(t *testing.T) {
 	if err != nil || len(latest) != 1 || latest[0].Value != 1000 {
 		t.Errorf("latest: %+v err=%v", latest, err)
 	}
-	agg, err := s.MetricAggregate(ctx, "icmp.loss", "1.1.1.1", now.Add(-time.Hour))
+	agg, err := s.MetricAggregate(ctx, "icmp.loss", "1.1.1.1", now.Add(-time.Hour), now)
 	if err != nil || agg.N != 20 || agg.Avg == nil || *agg.Avg != 0.5 {
 		t.Errorf("aggregate: %+v err=%v", agg, err)
 	}
@@ -171,7 +171,7 @@ func TestMetricsAndEvents(t *testing.T) {
 	if err != nil || total != 1 || items[0].Message != "100% CPU" {
 		t.Errorf("event search with wildcard: total=%d items=%+v err=%v", total, items, err)
 	}
-	counts, err := s.EventCounts(ctx, now.Add(-time.Hour))
+	counts, err := s.EventCounts(ctx, now.Add(-time.Hour), now)
 	if err != nil || counts["info"] != 1 || counts["error"] != 1 || counts["warning"] != 1 {
 		t.Errorf("counts: %v err=%v", counts, err)
 	}

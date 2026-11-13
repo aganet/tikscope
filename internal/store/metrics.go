@@ -23,9 +23,9 @@ type Series struct {
 
 // MetricTimeline returns zero-filled buckets per key for one metric. An
 // empty key selects every key of the metric.
-func (s *Store) MetricTimeline(ctx context.Context, metric, key string, since time.Time, bucket int64, now time.Time) ([]Series, error) {
-	q := `SELECT key, (ts / ?) * ?, AVG(value), MAX(value), MIN(value), COUNT(*) FROM metrics WHERE metric = ? AND ts >= ?`
-	args := []any{bucket, bucket, metric, since.Unix()}
+func (s *Store) MetricTimeline(ctx context.Context, metric, key string, since, until time.Time, bucket int64) ([]Series, error) {
+	q := `SELECT key, (ts / ?) * ?, AVG(value), MAX(value), MIN(value), COUNT(*) FROM metrics WHERE metric = ? AND ts >= ? AND ts <= ?`
+	args := []any{bucket, bucket, metric, since.Unix(), until.Unix()}
 	if key != "" {
 		q += ` AND key = ?`
 		args = append(args, key)
@@ -55,7 +55,7 @@ func (s *Store) MetricTimeline(ctx context.Context, metric, key string, since ti
 		return nil, err
 	}
 	first := (since.Unix() / bucket) * bucket
-	last := (now.Unix() / bucket) * bucket
+	last := (until.Unix() / bucket) * bucket
 	out := make([]Series, 0, len(order))
 	for _, k := range order {
 		ser := Series{Key: k, Buckets: make([]MetricBucket, 0, (last-first)/bucket+1)}
@@ -106,11 +106,11 @@ type Aggregate struct {
 }
 
 // MetricAggregate summarises one series over a window.
-func (s *Store) MetricAggregate(ctx context.Context, metric, key string, since time.Time) (Aggregate, error) {
+func (s *Store) MetricAggregate(ctx context.Context, metric, key string, since, until time.Time) (Aggregate, error) {
 	var a Aggregate
 	var avg, max, min, sum sql.NullFloat64
-	err := s.ro.QueryRowContext(ctx, `SELECT AVG(value), MAX(value), MIN(value), SUM(value), COUNT(*) FROM metrics WHERE metric = ? AND key = ? AND ts >= ?`,
-		metric, key, since.Unix()).Scan(&avg, &max, &min, &sum, &a.N)
+	err := s.ro.QueryRowContext(ctx, `SELECT AVG(value), MAX(value), MIN(value), SUM(value), COUNT(*) FROM metrics WHERE metric = ? AND key = ? AND ts >= ? AND ts <= ?`,
+		metric, key, since.Unix(), until.Unix()).Scan(&avg, &max, &min, &sum, &a.N)
 	if err != nil {
 		return a, err
 	}

@@ -46,11 +46,12 @@ and a list of what is wrong right now, all on one page.
 - **System**: collector counters, router identity, version, uptime, health
   sensors, DHCP pool usage, DNS cache, adlists and probe state.
 
-Pick any time range from 1 hour to 30 days. The light and dark themes use
-Grafana's colors. Charts scale to their own peak, and the speedometers use
-your line speed if you set it, or the peak in range if you don't. Refreshes
-don't flicker. It works on a phone, and the wall mode (`#wall`) fits any
-screen without scrolling.
+Pick any time range from 1 hour to 30 days, or drag across a chart to zoom
+into that span; every page follows, and a double click or the x next to the
+range takes you back. The light and dark themes use Grafana's colors. Charts
+scale to their own peak, and the speedometers use your line speed if you set
+it, or the peak in range if you don't. Refreshes don't flicker. It works on a
+phone, and the wall mode (`#wall`) fits any screen without scrolling.
 
 ## Screenshots
 
@@ -281,7 +282,8 @@ is passed through.
 ## API
 
 Every endpoint except `/healthz` and `/api/auth/*` needs the session cookie.
-They all take `range` (`1h`, `6h`, `24h`, `7d`, `30d`), default `24h`.
+They all take `range`: a duration (`1h`, `6h`, `24h`, `7d`, `30d`, default
+`24h`) or an absolute window as unix seconds (`1731400000..1731403600`).
 
 | Endpoint | Returns |
 | --- | --- |

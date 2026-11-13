@@ -67,7 +67,7 @@ func Evaluate(ctx context.Context, st *store.Store, in Inputs) ([]Issue, error) 
 		if p.Target.Kind == "dns" {
 			lossMetric, rttMetric = probe.MetricDNSLoss, probe.MetricDNSRTT
 		}
-		loss, err := st.MetricAggregate(ctx, lossMetric, p.Target.Addr, now.Add(-short))
+		loss, err := st.MetricAggregate(ctx, lossMetric, p.Target.Addr, now.Add(-short), now)
 		if err != nil {
 			return nil, err
 		}
@@ -79,11 +79,11 @@ func Evaluate(ctx context.Context, st *store.Store, in Inputs) ([]Issue, error) 
 			out = append(out, Issue{Severity: sev, Kind: "probe", Key: p.Target.Addr,
 				Title: fmt.Sprintf("Packet loss to %s", p.Target.Addr), Detail: fmt.Sprintf("%.0f%% of %s probes failed in the last 5 minutes", *loss.Avg*100, p.Target.Kind)})
 		}
-		recent, err := st.MetricAggregate(ctx, rttMetric, p.Target.Addr, now.Add(-short))
+		recent, err := st.MetricAggregate(ctx, rttMetric, p.Target.Addr, now.Add(-short), now)
 		if err != nil {
 			return nil, err
 		}
-		base, err := st.MetricAggregate(ctx, rttMetric, p.Target.Addr, now.Add(-long))
+		base, err := st.MetricAggregate(ctx, rttMetric, p.Target.Addr, now.Add(-long), now)
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +142,7 @@ func Evaluate(ctx context.Context, st *store.Store, in Inputs) ([]Issue, error) 
 			if metric == routeros.MetricIfaceErrors && wireless[k] {
 				continue
 			}
-			agg, err := st.MetricAggregate(ctx, metric, k, now.Add(-short))
+			agg, err := st.MetricAggregate(ctx, metric, k, now.Add(-short), now)
 			if err != nil || agg.Sum == nil {
 				continue
 			}
@@ -162,7 +162,7 @@ func Evaluate(ctx context.Context, st *store.Store, in Inputs) ([]Issue, error) 
 			out = append(out, Issue{Severity: "warning", Kind: "router", Title: "Router API poll failing", Detail: firstLine(r.Error)})
 		}
 		if r.Identity != "" {
-			if cpu, err := st.MetricAggregate(ctx, routeros.MetricCPU, "router", now.Add(-short)); err == nil && cpu.Avg != nil && *cpu.Avg >= th.CPUPct {
+			if cpu, err := st.MetricAggregate(ctx, routeros.MetricCPU, "router", now.Add(-short), now); err == nil && cpu.Avg != nil && *cpu.Avg >= th.CPUPct {
 				out = append(out, Issue{Severity: "warning", Kind: "router", Title: "High CPU load", Detail: fmt.Sprintf("%.0f%% average over the last 5 minutes", *cpu.Avg)})
 			}
 			if r.TotalMemory > 0 {

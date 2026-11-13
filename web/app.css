@@ -206,6 +206,8 @@ td.nowrap { white-space: nowrap; }
 .chart .hover rect, .chart rect.hover { fill: transparent; }
 .chart .hover rect:hover { fill: var(--surface-2); opacity: .7; }
 .chart .crosshair { stroke: var(--muted); stroke-width: 1; pointer-events: none; }
+.chart .hover, .chart rect.hover { cursor: crosshair; user-select: none; }
+.chart .brush { fill: var(--accent); fill-opacity: .15; stroke: var(--accent); stroke-width: 1; pointer-events: none; }
 .chart-empty { height: 120px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12px; color: var(--text-2); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }

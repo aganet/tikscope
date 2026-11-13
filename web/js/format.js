@@ -38,8 +38,8 @@ export function fmtRate(s) {
   return /^\d+$/.test(String(s)) ? fmtBps(Number(s)) : String(s);
 }
 
-export function fmtDateTime(ts) {
-  return new Date(ts * 1000).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+export function fmtDateTime(ts, seconds = true) {
+  return new Date(ts * 1000).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: seconds ? "2-digit" : undefined });
 }
 
 export function fmtTime(ts) {

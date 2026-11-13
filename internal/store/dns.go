@@ -15,6 +15,7 @@ import (
 // DNSFilter narrows every DNS read to a time window and optional dimensions.
 type DNSFilter struct {
 	Since   time.Time
+	Until   time.Time // zero means open-ended
 	Client  string
 	Domain  string // exact
 	Search  string // substring of the domain
@@ -27,6 +28,10 @@ const problemOutcomes = `('nxdomain','blocked','servfail','error')`
 func (f DNSFilter) where() (string, []any) {
 	clauses := []string{"ts >= ?"}
 	args := []any{f.Since.Unix()}
+	if !f.Until.IsZero() {
+		clauses = append(clauses, "ts <= ?")
+		args = append(args, f.Until.Unix())
+	}
 	if f.Client != "" {
 		clauses = append(clauses, "client = ?")
 		args = append(args, f.Client)
@@ -144,13 +149,12 @@ func BucketFor(window time.Duration) int64 {
 	}
 }
 
-func (s *Store) DNSSummary(ctx context.Context, window time.Duration, top int) (*DNSSummary, error) {
-	now := time.Now()
-	f := DNSFilter{Since: now.Add(-window)}
-	out := &DNSSummary{Since: f.Since.Unix(), Until: now.Unix(), BucketSecs: BucketFor(window)}
+func (s *Store) DNSSummary(ctx context.Context, since, until time.Time, top int) (*DNSSummary, error) {
+	f := DNSFilter{Since: since, Until: until}
+	out := &DNSSummary{Since: since.Unix(), Until: until.Unix(), BucketSecs: BucketFor(until.Sub(since))}
 	err := parallel(
 		func() (err error) { out.Totals, out.Types, err = s.dnsTotals(ctx, f); return },
-		func() (err error) { out.Timeline, err = s.DNSTimeline(ctx, f, out.BucketSecs, now); return },
+		func() (err error) { out.Timeline, err = s.DNSTimeline(ctx, f, out.BucketSecs); return },
 		func() (err error) { out.TopDomains, err = s.Domains(ctx, f, top); return },
 		func() (err error) { out.TopClients, err = s.Clients(ctx, f, top); return },
 		func() (err error) {
@@ -210,8 +214,8 @@ func (s *Store) dnsTotals(ctx context.Context, f DNSFilter) (DNSTotals, []Count,
 	return t, types, rows.Err()
 }
 
-// DNSTimeline returns one bucket per interval from f.Since to now, zero-filled.
-func (s *Store) DNSTimeline(ctx context.Context, f DNSFilter, bucket int64, now time.Time) ([]DNSBucket, error) {
+// DNSTimeline returns one bucket per interval from f.Since to f.Until, zero-filled.
+func (s *Store) DNSTimeline(ctx context.Context, f DNSFilter, bucket int64) ([]DNSBucket, error) {
 	where, args := f.where()
 	rows, err := s.ro.QueryContext(ctx, `SELECT (ts / ?) * ?, COUNT(*),
 		SUM(outcome IN ('ok','nodata')), SUM(outcome = 'nxdomain'), SUM(outcome = 'blocked'),
@@ -237,7 +241,7 @@ func (s *Store) DNSTimeline(ctx context.Context, f DNSFilter, bucket int64, now 
 		return nil, err
 	}
 	first := (f.Since.Unix() / bucket) * bucket
-	last := (now.Unix() / bucket) * bucket
+	last := (f.Until.Unix() / bucket) * bucket
 	out := make([]DNSBucket, 0, (last-first)/bucket+1)
 	for ts := first; ts <= last; ts += bucket {
 		b, ok := byTS[ts]

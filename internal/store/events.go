@@ -8,8 +8,9 @@ import (
 
 type EventFilter struct {
 	Since    time.Time
-	Severity string // info, warning, error, critical, or "problem" for warning and above
-	Search   string // substring of topics or message
+	Until    time.Time // zero means open-ended
+	Severity string    // info, warning, error, critical, or "problem" for warning and above
+	Search   string    // substring of topics or message
 }
 
 type EventRow struct {
@@ -24,6 +25,10 @@ type EventRow struct {
 func (f EventFilter) where() (string, []any) {
 	clauses := []string{"ts >= ?"}
 	args := []any{f.Since.Unix()}
+	if !f.Until.IsZero() {
+		clauses = append(clauses, "ts <= ?")
+		args = append(args, f.Until.Unix())
+	}
 	switch f.Severity {
 	case "":
 	case "problem":
@@ -70,8 +75,8 @@ func (s *Store) Events(ctx context.Context, f EventFilter, page, size int) ([]Ev
 }
 
 // EventCounts groups the window by severity.
-func (s *Store) EventCounts(ctx context.Context, since time.Time) (map[string]int64, error) {
-	rows, err := s.ro.QueryContext(ctx, `SELECT severity, COUNT(*) FROM events WHERE ts >= ? GROUP BY 1`, since.Unix())
+func (s *Store) EventCounts(ctx context.Context, since, until time.Time) (map[string]int64, error) {
+	rows, err := s.ro.QueryContext(ctx, `SELECT severity, COUNT(*) FROM events WHERE ts >= ? AND ts <= ? GROUP BY 1`, since.Unix(), until.Unix())
 	if err != nil {
 		return nil, err
 	}

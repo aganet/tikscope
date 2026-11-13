@@ -1,6 +1,7 @@
 // Entry point: global controls, hash routing, polling and the drawer.
 import { h, icon, replace, clear } from "./dom.js";
-import { hideTooltip } from "./charts.js";
+import { hideTooltip, onZoom } from "./charts.js";
+import { fmtDateTime } from "./format.js";
 import { overview } from "./views/overview.js";
 import { dns } from "./views/dns.js";
 import { network } from "./views/network.js";
@@ -13,8 +14,11 @@ import { api } from "./api.js";
 
 const views = { overview, dns, network, devices, events, system, wall };
 
+// range is what the API gets: a preset such as "24h", or "from..to" in unix
+// seconds while zoomed into a chart. Only the preset is remembered.
 export const state = {
   range: "24h",
+  preset: "24h",
   autoRefresh: true,
   interval: 10,
   tab: "overview",
@@ -93,7 +97,7 @@ function setupControls() {
   const pause = document.getElementById("pause");
   const box = document.getElementById("refresh-box");
   try {
-    state.range = localStorage.getItem("tikscope.range") || state.range;
+    state.preset = state.range = localStorage.getItem("tikscope.range") || state.range;
     state.interval = Number(localStorage.getItem("tikscope.interval")) || state.interval;
     applyTheme(localStorage.getItem("tikscope.theme") || "");
   } catch { applyTheme(""); }
@@ -105,7 +109,34 @@ function setupControls() {
     box.classList.toggle("paused", !state.autoRefresh);
   };
   paintPause();
-  range.addEventListener("change", () => { state.range = range.value; try { localStorage.setItem("tikscope.range", state.range); } catch {} render(); });
+  range.addEventListener("change", () => {
+    state.preset = state.range = range.value;
+    try { localStorage.setItem("tikscope.range", state.range); } catch {}
+    zoomOut();
+  });
+  const zoomOutBtn = document.getElementById("zoom-out");
+  replace(zoomOutBtn, icon("x"));
+  const zoomOut = () => {
+    state.range = state.preset;
+    range.querySelector("option.zoom")?.remove();
+    range.value = state.range;
+    zoomOutBtn.hidden = true;
+    render();
+  };
+  onZoom({
+    into(from, to) {
+      to = Math.max(to, from + 60);
+      state.range = `${from}..${to}`;
+      const opt = range.querySelector("option.zoom") || range.appendChild(h("option", { class: "zoom" }));
+      opt.value = state.range;
+      opt.textContent = `${fmtDateTime(from, false)} to ${fmtDateTime(to, false)}`;
+      range.value = state.range;
+      zoomOutBtn.hidden = false;
+      render();
+    },
+    out: zoomOut,
+  });
+  zoomOutBtn.addEventListener("click", zoomOut);
   interval.addEventListener("change", () => { state.interval = Number(interval.value); try { localStorage.setItem("tikscope.interval", state.interval); } catch {} schedule(); });
   pause.addEventListener("click", () => { state.autoRefresh = !state.autoRefresh; paintPause(); schedule(); });
   const refresh = document.getElementById("refresh");

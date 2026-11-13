@@ -25,6 +25,7 @@ import (
 
 const (
 	defaultRange = 24 * time.Hour
+	minRange     = time.Minute
 	maxRange     = 365 * 24 * time.Hour
 	maxLimit     = 500
 	maxPageSize  = 500
@@ -202,30 +203,30 @@ func (a *API) fail(w http.ResponseWriter, err error) {
 // --- DNS ---------------------------------------------------------------
 
 func (a *API) dnsSummary(r *http.Request) (any, error) {
-	window, err := rangeParam(r)
+	w, err := rangeParam(r)
 	if err != nil {
 		return nil, err
 	}
-	return a.Store.DNSSummary(r.Context(), window, intParam(r, "limit", 10, maxLimit))
+	return a.Store.DNSSummary(r.Context(), w.since, w.until, intParam(r, "limit", 10, maxLimit))
 }
 
 func (a *API) dnsTimeline(w http.ResponseWriter, r *http.Request) {
-	f, window, err := dnsFilter(r)
+	f, err := dnsFilter(r)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	bucket := store.BucketFor(window)
-	buckets, err := a.Store.DNSTimeline(r.Context(), f, bucket, time.Now())
+	bucket := store.BucketFor(f.Until.Sub(f.Since))
+	buckets, err := a.Store.DNSTimeline(r.Context(), f, bucket)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"bucket_secs": bucket, "since": f.Since.Unix(), "buckets": buckets})
+	writeJSON(w, map[string]any{"bucket_secs": bucket, "since": f.Since.Unix(), "until": f.Until.Unix(), "buckets": buckets})
 }
 
 func (a *API) dnsDomains(w http.ResponseWriter, r *http.Request) {
-	f, _, err := dnsFilter(r)
+	f, err := dnsFilter(r)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -239,7 +240,7 @@ func (a *API) dnsDomains(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) dnsClients(w http.ResponseWriter, r *http.Request) {
-	f, _, err := dnsFilter(r)
+	f, err := dnsFilter(r)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -253,7 +254,7 @@ func (a *API) dnsClients(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) dnsQueries(w http.ResponseWriter, r *http.Request) {
-	f, _, err := dnsFilter(r)
+	f, err := dnsFilter(r)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -269,7 +270,7 @@ func (a *API) dnsQueries(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) dnsExport(w http.ResponseWriter, r *http.Request) {
-	f, _, err := dnsFilter(r)
+	f, err := dnsFilter(r)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -358,7 +359,7 @@ func (a *API) dnsResolve(w http.ResponseWriter, r *http.Request) {
 // --- Metrics and network --------------------------------------------------
 
 func (a *API) metrics(w http.ResponseWriter, r *http.Request) {
-	window, err := rangeParam(r)
+	win, err := rangeParam(r)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -368,14 +369,13 @@ func (a *API) metrics(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "metric is required", http.StatusBadRequest)
 		return
 	}
-	now := time.Now()
-	bucket := metricBucket(window)
-	series, err := a.Store.MetricTimeline(r.Context(), metric, r.URL.Query().Get("key"), now.Add(-window), bucket, now)
+	bucket := metricBucket(win.dur())
+	series, err := a.Store.MetricTimeline(r.Context(), metric, r.URL.Query().Get("key"), win.since, win.until, bucket)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"bucket_secs": bucket, "since": now.Add(-window).Unix(), "series": series})
+	writeJSON(w, map[string]any{"bucket_secs": bucket, "since": win.since.Unix(), "until": win.until.Unix(), "series": series})
 }
 
 // metricBucket keeps metric timelines around 200 to 300 points.
@@ -402,6 +402,7 @@ type probeView struct {
 type networkView struct {
 	BucketSecs int64                                      `json:"bucket_secs"`
 	Since      int64                                      `json:"since"`
+	Until      int64                                      `json:"until"`
 	Router     *routeros.Snapshot                         `json:"router"`
 	WAN        string                                     `json:"wan"`
 	Interfaces []routeros.Interface                       `json:"interfaces"`
@@ -413,15 +414,14 @@ type networkView struct {
 }
 
 func (a *API) network(r *http.Request) (any, error) {
-	window, err := rangeParam(r)
+	w, err := rangeParam(r)
 	if err != nil {
 		return nil, err
 	}
 	ctx := r.Context()
-	now := time.Now()
-	since := now.Add(-window)
-	bucket := metricBucket(window)
-	v := networkView{BucketSecs: bucket, Since: since.Unix(), Throughput: map[string][]store.MetricBucket{}, All: map[string]map[string][]store.MetricBucket{},
+	since, until := w.since, w.until
+	bucket := metricBucket(w.dur())
+	v := networkView{BucketSecs: bucket, Since: since.Unix(), Until: until.Unix(), Throughput: map[string][]store.MetricBucket{}, All: map[string]map[string][]store.MetricBucket{},
 		Limits: map[string]float64{"down": a.WANDownBps, "up": a.WANUpBps}, System: map[string][]store.MetricBucket{}, Probes: []probeView{}}
 	if a.Poller != nil {
 		v.Router = a.Poller.Snapshot()
@@ -439,7 +439,7 @@ func (a *API) network(r *http.Request) (any, error) {
 	}
 	if iface != "" {
 		for metric, name := range map[string]string{routeros.MetricIfaceRx: "rx", routeros.MetricIfaceTx: "tx"} {
-			s, err := a.Store.MetricTimeline(ctx, metric, iface, since, bucket, now)
+			s, err := a.Store.MetricTimeline(ctx, metric, iface, since, until, bucket)
 			if err != nil {
 				return nil, err
 			}
@@ -450,7 +450,7 @@ func (a *API) network(r *http.Request) (any, error) {
 	}
 	// One query per direction covers every interface at once.
 	for metric, name := range map[string]string{routeros.MetricIfaceRx: "rx", routeros.MetricIfaceTx: "tx"} {
-		series, err := a.Store.MetricTimeline(ctx, metric, "", since, bucket, now)
+		series, err := a.Store.MetricTimeline(ctx, metric, "", since, until, bucket)
 		if err != nil {
 			return nil, err
 		}
@@ -462,7 +462,7 @@ func (a *API) network(r *http.Request) (any, error) {
 		}
 	}
 	for metric, name := range map[string]string{routeros.MetricCPU: "cpu", routeros.MetricMemUsed: "mem", routeros.MetricConnections: "connections"} {
-		s, err := a.Store.MetricTimeline(ctx, metric, "router", since, bucket, now)
+		s, err := a.Store.MetricTimeline(ctx, metric, "router", since, until, bucket)
 		if err != nil {
 			return nil, err
 		}
@@ -477,17 +477,17 @@ func (a *API) network(r *http.Request) (any, error) {
 				rttMetric, lossMetric = probe.MetricDNSRTT, probe.MetricDNSLoss
 			}
 			pv := probeView{State: st, RTT: []store.MetricBucket{}, Loss: []store.MetricBucket{}}
-			if agg, err := a.Store.MetricAggregate(ctx, rttMetric, st.Target.Addr, since); err == nil {
+			if agg, err := a.Store.MetricAggregate(ctx, rttMetric, st.Target.Addr, since, until); err == nil {
 				pv.RTTAvgMS, pv.RTTMaxMS = agg.Avg, agg.Max
 			}
-			if agg, err := a.Store.MetricAggregate(ctx, lossMetric, st.Target.Addr, since); err == nil && agg.Avg != nil {
+			if agg, err := a.Store.MetricAggregate(ctx, lossMetric, st.Target.Addr, since, until); err == nil && agg.Avg != nil {
 				pct := *agg.Avg * 100
 				pv.LossPct = &pct
 			}
-			if s, err := a.Store.MetricTimeline(ctx, rttMetric, st.Target.Addr, since, bucket, now); err == nil && len(s) > 0 {
+			if s, err := a.Store.MetricTimeline(ctx, rttMetric, st.Target.Addr, since, until, bucket); err == nil && len(s) > 0 {
 				pv.RTT = s[0].Buckets
 			}
-			if s, err := a.Store.MetricTimeline(ctx, lossMetric, st.Target.Addr, since, bucket, now); err == nil && len(s) > 0 {
+			if s, err := a.Store.MetricTimeline(ctx, lossMetric, st.Target.Addr, since, until, bucket); err == nil && len(s) > 0 {
 				pv.Loss = s[0].Buckets
 			}
 			v.Probes = append(v.Probes, pv)
@@ -516,13 +516,11 @@ type deviceView struct {
 }
 
 func (a *API) devices(r *http.Request) (any, error) {
-	window, err := rangeParam(r)
+	w, err := rangeParam(r)
 	if err != nil {
 		return nil, err
 	}
 	ctx := r.Context()
-	now := time.Now()
-	since := now.Add(-window)
 	byIP := map[string]*deviceView{}
 	var order []string
 	get := func(ip string) *deviceView {
@@ -546,7 +544,7 @@ func (a *API) devices(r *http.Request) (any, error) {
 			byMAC[h.MAC] = append(byMAC[h.MAC], d)
 		}
 	}
-	clients, err := a.Store.Clients(ctx, store.DNSFilter{Since: since}, maxLimit)
+	clients, err := a.Store.Clients(ctx, store.DNSFilter{Since: w.since, Until: w.until}, maxLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -564,7 +562,7 @@ func (a *API) devices(r *http.Request) (any, error) {
 		routeros.MetricDeviceRx: func(d *deviceView, v float64) { d.RxBps = &v },
 		routeros.MetricDeviceTx: func(d *deviceView, v float64) { d.TxBps = &v },
 	} {
-		latest, err := a.Store.MetricLatest(ctx, metric, now.Add(-2*time.Minute))
+		latest, err := a.Store.MetricLatest(ctx, metric, time.Now().Add(-2*time.Minute))
 		if err != nil {
 			return nil, err
 		}
@@ -576,7 +574,7 @@ func (a *API) devices(r *http.Request) (any, error) {
 		routeros.MetricDeviceRx: func(d *deviceView, v float64) { d.RxAvgBps = &v },
 		routeros.MetricDeviceTx: func(d *deviceView, v float64) { d.TxAvgBps = &v },
 	} {
-		series, err := a.Store.MetricTimeline(ctx, metric, "", since, int64(window.Seconds())+1, now)
+		series, err := a.Store.MetricTimeline(ctx, metric, "", w.since, w.until, int64(w.dur().Seconds())+1)
 		if err != nil {
 			return nil, err
 		}
@@ -673,13 +671,13 @@ func sortDevices(list []deviceView) {
 // --- Events, issues, status -----------------------------------------------
 
 func (a *API) events(w http.ResponseWriter, r *http.Request) {
-	window, err := rangeParam(r)
+	win, err := rangeParam(r)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	q := r.URL.Query()
-	f := store.EventFilter{Since: time.Now().Add(-window), Severity: q.Get("severity"), Search: strings.TrimSpace(q.Get("search"))}
+	f := store.EventFilter{Since: win.since, Until: win.until, Severity: q.Get("severity"), Search: strings.TrimSpace(q.Get("search"))}
 	page := intParam(r, "page", 1, 1<<30)
 	size := intParam(r, "page_size", 50, maxPageSize)
 	items, total, err := a.Store.Events(r.Context(), f, page, size)
@@ -687,7 +685,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	counts, err := a.Store.EventCounts(r.Context(), f.Since)
+	counts, err := a.Store.EventCounts(r.Context(), f.Since, f.Until)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -734,32 +732,51 @@ func (a *API) status(w http.ResponseWriter, _ *http.Request) {
 
 // --- helpers ----------------------------------------------------------------
 
-func dnsFilter(r *http.Request) (store.DNSFilter, time.Duration, error) {
-	window, err := rangeParam(r)
+func dnsFilter(r *http.Request) (store.DNSFilter, error) {
+	w, err := rangeParam(r)
 	if err != nil {
-		return store.DNSFilter{}, 0, err
+		return store.DNSFilter{}, err
 	}
 	q := r.URL.Query()
 	return store.DNSFilter{
-		Since:   time.Now().Add(-window),
+		Since:   w.since,
+		Until:   w.until,
 		Client:  strings.TrimSpace(q.Get("client")),
 		Domain:  strings.TrimSpace(q.Get("domain")),
 		Search:  strings.TrimSpace(q.Get("search")),
 		Type:    strings.TrimSpace(q.Get("type")),
 		Outcome: strings.TrimSpace(q.Get("outcome")),
-	}, window, nil
+	}, nil
 }
 
-func rangeParam(r *http.Request) (time.Duration, error) {
+// window is the span a request covers: the last so-many of a preset, or the
+// absolute "from..to" pair (unix seconds) the dashboard sends when zoomed in.
+type window struct {
+	since, until time.Time
+}
+
+func (w window) dur() time.Duration { return w.until.Sub(w.since) }
+
+func rangeParam(r *http.Request) (window, error) {
 	s := r.URL.Query().Get("range")
+	now := time.Now()
 	if s == "" {
-		return defaultRange, nil
+		return window{now.Add(-defaultRange), now}, nil
+	}
+	if from, to, ok := strings.Cut(s, ".."); ok {
+		a, errA := strconv.ParseInt(from, 10, 64)
+		b, errB := strconv.ParseInt(to, 10, 64)
+		w := window{time.Unix(a, 0), time.Unix(b, 0)}
+		if errA != nil || errB != nil || w.dur() < minRange || w.dur() > maxRange {
+			return window{}, badRequest{"invalid range"}
+		}
+		return w, nil
 	}
 	d, err := ParseDuration(s)
 	if err != nil || d <= 0 || d > maxRange {
-		return 0, badRequest{"invalid range"}
+		return window{}, badRequest{"invalid range"}
 	}
-	return d, nil
+	return window{now.Add(-d), now}, nil
 }
 
 func intParam(r *http.Request, name string, def, max int) int {
