@@ -7,7 +7,17 @@
 
 # tikscope
 
-**Network visibility &middot; Router monitoring.** Monitoring for MikroTik routers in one small Go binary: DNS analytics from
+**Network visibility &middot; Router monitoring.**
+
+My homelab has no shortage of dashboards: Grafana, a few MikroTik ones,
+info pages for every service. What I never had was a single place for
+everything the router knows. The line right now, which device pulls the
+bandwidth, what the router resolved for whom, and whether anything is
+wrong, without opening three tools and correlating by hand. I had wanted
+that for a long time, and tikscope is it: one binary, one SQLite file, fed
+by the router's own log stream and REST API, nothing else to run.
+
+Monitoring for MikroTik routers in one small Go binary: DNS analytics from
 the router's log stream, throughput and health from the REST API,
 reachability probes from the collector, and a list of current issues derived
 from all three. SQLite storage, embedded web UI, no other services.
