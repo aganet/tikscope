@@ -30,7 +30,9 @@ derived from all three. SQLite storage, embedded web UI, no other services.
   health sensor, DHCP pool usage, DNS cache, adlists, probe state.
 
 Time ranges from 1 hour to 30 days, light and dark themes, works on phones,
-and a wall mode for big screens.
+and a wall mode that fits any screen. Every chart scales to its own peak,
+the speedometers to the configured line speed or the peak in range, and the
+"no issues" banner can be dismissed.
 
 ## Screenshots
 
@@ -48,6 +50,10 @@ DNS analytics and the device drill-down with bandwidth and Wi-Fi signal.
 ![DNS](docs/dns.png)
 
 ![Device](docs/device-detail.png)
+
+System: collector counters, log stream, router snapshot, probes.
+
+![System](docs/system.png)
 
 Wall mode (`#wall`): edge to edge for a TV or a spare monitor, with a clock,
 issue strip and fullscreen button. It fits the screen without scrolling and
