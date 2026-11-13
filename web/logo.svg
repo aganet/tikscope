@@ -1,1 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="36" stroke="#29C7D9" stroke-width="2" fill="none"/><circle cx="50" cy="50" r="23" stroke="#29C7D9" stroke-width="1.5" fill="none" opacity=".7"/><circle cx="50" cy="50" r="9" stroke="#29C7D9" stroke-width="2" fill="none"/><path d="M50 50 L76 25 A36 36 0 0 1 85 50 Z" fill="#29C7D9" opacity=".22"/><path d="M50 50 L76 25" stroke="#29C7D9" stroke-width="2.5"/><circle cx="76" cy="25" r="4" fill="#75E6B1"/><circle cx="50" cy="14" r="3" fill="#29C7D9"/><circle cx="17" cy="50" r="3" fill="#29C7D9"/><path d="M50 5 V14 M50 86 V95 M5 50 H14 M86 50 H95" stroke="#29C7D9" stroke-width="2"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<defs>
+<radialGradient id="d" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#0b2b46"/><stop offset="1" stop-color="#04152a"/></radialGradient>
+<linearGradient id="s" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#1ec8f2" stop-opacity="0"/><stop offset=".55" stop-color="#2ad4f0" stop-opacity=".6"/><stop offset="1" stop-color="#8af7cf"/></linearGradient>
+<filter id="g" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.2"/></filter>
+</defs>
+<circle cx="50" cy="50" r="46" fill="#1ec8f2" opacity=".4" filter="url(#g)"/>
+<circle cx="50" cy="50" r="45" fill="url(#d)" stroke="#1ec8f2" stroke-width="2.5"/>
+<g stroke="#1ec8f2" stroke-width="1" fill="none" opacity=".7"><circle cx="50" cy="50" r="33"/><circle cx="50" cy="50" r="22"/><circle cx="50" cy="50" r="11"/><path d="M50 5v90M5 50h90"/></g>
+<path d="M50 50L72.5 11A45 45 0 0 1 89 27.5Z" fill="url(#s)"/>
+<path d="M50 50L31 28M50 50L77 45M50 50L23 60M50 50L72 67M50 50L50 77" stroke="#1ec8f2" stroke-width="1.6" stroke-linecap="round"/>
+<g fill="#19b6ef" stroke="#9eeeff" stroke-width="1.2"><circle cx="31" cy="28" r="3.4"/><circle cx="77" cy="45" r="3" fill="#5fe3c8"/><circle cx="23" cy="60" r="3.2"/><circle cx="72" cy="67" r="3.2"/><circle cx="50" cy="77" r="3.2"/></g>
+<circle cx="50" cy="50" r="5.2" fill="#19b6ef" stroke="#c4f4ff" stroke-width="1.6"/>
+</svg>

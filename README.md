@@ -1,4 +1,9 @@
-<p align="center"><img src="web/logo.svg" width="96" alt="tikscope logo"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo.png" width="220">
+    <img src="web/logo.svg" width="120" alt="tikscope logo">
+  </picture>
+</p>
 
 # tikscope
 
