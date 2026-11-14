@@ -5,6 +5,7 @@ import { fmtBps, fmtBytes, fmtMs, fmtInt, fmtPct, fmtAgo, fmtNum, fmtDuration } 
 import { lines, legend, bucketsToPoints } from "../charts.js";
 import { tile, table } from "../widgets.js";
 import { throughputChart, probeChart } from "./overview.js";
+import { compareRange } from "../range.js";
 
 function viewState(state) {
   state.views.network ||= { iface: "" };
@@ -14,10 +15,12 @@ function viewState(state) {
 export const network = {
   async load(state, signal) {
     const v = viewState(state);
-    return api.network(state.range, v.iface, signal);
+    const cmp = compareRange(state);
+    const [net, prevNet] = await Promise.all([api.network(state.range, v.iface, signal), cmp ? api.network(cmp, v.iface, signal) : null]);
+    return { net, prevNet };
   },
 
-  render(net, state, { openDrawer }) {
+  render({ net, prevNet }, state, { openDrawer }) {
     const v = viewState(state);
     const sel = v.iface || net.wan;
     const last = (b) => { for (let i = (b || []).length - 1; i >= 0; i--) if (b[i].avg !== null) return b[i].avg; return null; };
@@ -39,7 +42,7 @@ export const network = {
         net.interfaces.filter((i) => i.running || i.rx_bytes > 0).map((i) => h("option", { value: i.name, selected: i.name === sel }, i.wan ? `${i.name} (WAN)` : i.name)));
       blocks.push(h("div", { class: "card" },
         h("div", { class: "card-head" }, sectionTitle("download", "green", "Throughput", "Bits per second, averaged per bucket"), ifaceSelect),
-        throughputChart(net, state, 240)));
+        throughputChart(net, state, 240, prevNet)));
 
       blocks.push(card(sectionTitle("router", "violet", "Interfaces", `${net.interfaces.length} on ${net.router.identity}`),
         table([

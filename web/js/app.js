@@ -1,7 +1,8 @@
 // Entry point: global controls, hash routing, polling and the drawer.
 import { h, icon, replace, clear } from "./dom.js";
-import { hideTooltip, onZoom } from "./charts.js";
+import { hideTooltip, onZoom, interacting } from "./charts.js";
 import { fmtDateTime } from "./format.js";
+import { PRESET_SECS, rangeWindow } from "./range.js";
 import { overview } from "./views/overview.js";
 import { dns } from "./views/dns.js";
 import { network } from "./views/network.js";
@@ -15,10 +16,12 @@ import { api } from "./api.js";
 const views = { overview, dns, network, devices, events, system, wall };
 
 // range is what the API gets: a preset such as "24h", or "from..to" in unix
-// seconds while zoomed into a chart. Only the preset is remembered.
+// seconds while zoomed into a chart. Only the preset is remembered; a zoom
+// travels in the URL. compare is "" or a key of COMPARE in range.js.
 export const state = {
   range: "24h",
   preset: "24h",
+  compare: "",
   autoRefresh: true,
   interval: 10,
   tab: "overview",
@@ -37,9 +40,83 @@ function readLocation() {
   return { tab: views[tab] ? tab : "overview", params };
 }
 
+function zoomed() {
+  return state.range !== state.preset;
+}
+
+// Every hash carries the zoom window so a link or a tab switch keeps it.
+function hashFor(tab, params) {
+  const p = new URLSearchParams(params || "");
+  if (zoomed()) p.set("range", state.range);
+  else p.delete("range");
+  const qs = p.toString();
+  return `#${tab}${qs ? `?${qs}` : ""}`;
+}
+
 export function navigate(tab, params) {
-  const qs = params ? new URLSearchParams(params).toString() : "";
-  location.hash = tab + (qs ? `?${qs}` : "");
+  location.hash = hashFor(tab, params).slice(1);
+}
+
+export function replaceLocation(tab, params) {
+  history.replaceState(null, "", hashFor(tab, params));
+}
+
+export function pushLocation(tab, params) {
+  history.pushState(null, "", hashFor(tab, params));
+}
+
+function selectionFrom(params) {
+  for (const kind of ["client", "domain", "interface"]) if (params.get(kind)) return { kind, key: params.get(kind) };
+  return null;
+}
+
+function paintRange() {
+  const range = document.getElementById("range");
+  let opt = range.querySelector("option.zoom");
+  if (zoomed()) {
+    const { from, to } = rangeWindow(state.range);
+    if (!opt) opt = range.appendChild(h("option", { class: "zoom" }));
+    opt.value = state.range;
+    opt.textContent = `${fmtDateTime(from, false)} to ${fmtDateTime(to, false)}`;
+  } else if (opt) opt.remove();
+  range.value = state.range;
+  for (const id of ["zoom-out", "pan-left", "pan-right"]) document.getElementById(id).hidden = !zoomed();
+  for (const a of document.querySelectorAll("#tabs a")) a.href = hashFor(a.dataset.tab);
+}
+
+// A range from the URL: a zoom window or a preset. Returns whether it changed.
+function applyRange(r) {
+  if (!r || r === state.range) return false;
+  const [from, to] = r.split("..").map(Number);
+  if (Number.isFinite(from) && Number.isFinite(to) && to > from) state.range = r;
+  else if (PRESET_SECS[r]) state.preset = state.range = r;
+  else return false;
+  paintRange();
+  return true;
+}
+
+function setRange(range) {
+  state.range = range;
+  paintRange();
+  const { tab, params } = readLocation();
+  replaceLocation(tab, params);
+  render();
+}
+
+function zoomTo(from, to) {
+  setRange(`${from}..${Math.max(to, from + 60)}`);
+}
+
+function zoomOut() {
+  setRange(state.preset);
+}
+
+// Shift the zoom window by half its width, never past now.
+function pan(dir) {
+  const { from, to } = rangeWindow(state.range);
+  const width = to - from, now = Math.floor(Date.now() / 1000);
+  const a = Math.min(from + dir * Math.round(width / 2), now - width);
+  if (a !== from) zoomTo(a, a + width);
 }
 
 async function render(reason = "refresh") {
@@ -81,7 +158,7 @@ function schedule() {
   clearInterval(timer);
   timer = null;
   if (!state.autoRefresh) return;
-  timer = setInterval(() => { if (document.visibilityState === "visible") render(); }, state.interval * 1000);
+  timer = setInterval(() => { if (document.visibilityState === "visible" && !interacting()) render(); }, state.interval * 1000);
 }
 
 function applyTheme(theme) {
@@ -96,13 +173,18 @@ function setupControls() {
   const interval = document.getElementById("interval");
   const pause = document.getElementById("pause");
   const box = document.getElementById("refresh-box");
+  const compare = document.getElementById("compare");
   try {
     state.preset = state.range = localStorage.getItem("tikscope.range") || state.range;
     state.interval = Number(localStorage.getItem("tikscope.interval")) || state.interval;
+    state.compare = localStorage.getItem("tikscope.compare") || "";
     applyTheme(localStorage.getItem("tikscope.theme") || "");
   } catch { applyTheme(""); }
-  range.value = state.range;
   interval.value = String(state.interval);
+  compare.value = state.compare;
+  compare.addEventListener("change", () => { state.compare = compare.value; try { localStorage.setItem("tikscope.compare", state.compare); } catch {} render(); });
+  applyRange(readLocation().params.get("range"));
+  paintRange();
   const paintPause = () => {
     replace(pause, icon(state.autoRefresh ? "pause" : "play"));
     pause.title = state.autoRefresh ? "Pause auto refresh" : "Resume auto refresh";
@@ -110,33 +192,19 @@ function setupControls() {
   };
   paintPause();
   range.addEventListener("change", () => {
-    state.preset = state.range = range.value;
-    try { localStorage.setItem("tikscope.range", state.range); } catch {}
+    if (range.value === state.range) return;
+    state.preset = range.value;
+    try { localStorage.setItem("tikscope.range", state.preset); } catch {}
     zoomOut();
   });
-  const zoomOutBtn = document.getElementById("zoom-out");
+  const zoomOutBtn = document.getElementById("zoom-out"), panLeft = document.getElementById("pan-left"), panRight = document.getElementById("pan-right");
   replace(zoomOutBtn, icon("x"));
-  const zoomOut = () => {
-    state.range = state.preset;
-    range.querySelector("option.zoom")?.remove();
-    range.value = state.range;
-    zoomOutBtn.hidden = true;
-    render();
-  };
-  onZoom({
-    into(from, to) {
-      to = Math.max(to, from + 60);
-      state.range = `${from}..${to}`;
-      const opt = range.querySelector("option.zoom") || range.appendChild(h("option", { class: "zoom" }));
-      opt.value = state.range;
-      opt.textContent = `${fmtDateTime(from, false)} to ${fmtDateTime(to, false)}`;
-      range.value = state.range;
-      zoomOutBtn.hidden = false;
-      render();
-    },
-    out: zoomOut,
-  });
+  replace(panLeft, icon("left"));
+  replace(panRight, icon("right"));
+  onZoom({ into: zoomTo, out: zoomOut });
   zoomOutBtn.addEventListener("click", zoomOut);
+  panLeft.addEventListener("click", () => pan(-1));
+  panRight.addEventListener("click", () => pan(1));
   interval.addEventListener("change", () => { state.interval = Number(interval.value); try { localStorage.setItem("tikscope.interval", state.interval); } catch {} schedule(); });
   pause.addEventListener("click", () => { state.autoRefresh = !state.autoRefresh; paintPause(); schedule(); });
   const refresh = document.getElementById("refresh");
@@ -158,7 +226,12 @@ function setupControls() {
   replace(document.getElementById("drawer-close"), icon("x"));
   document.getElementById("drawer-close").addEventListener("click", closeDrawer);
   document.getElementById("drawer-backdrop").addEventListener("click", closeDrawer);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeDrawer();
+    if (!zoomed() || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.key === "ArrowLeft") pan(-1);
+    if (e.key === "ArrowRight") pan(1);
+  });
 }
 
 // Re-render is cheap and charts size themselves from their container, so a
@@ -167,10 +240,13 @@ let resizeTimer;
 window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => render(), 200); });
 window.addEventListener("hashchange", () => {
   const { tab, params } = readLocation();
-  if (params.get("client")) openDrawer({ kind: "client", key: params.get("client") }, state);
-  else if (params.get("domain")) openDrawer({ kind: "domain", key: params.get("domain") }, state);
-  else if (params.get("interface")) openDrawer({ kind: "interface", key: params.get("interface") }, state);
-  if (!current || current.name !== tab || !params.toString()) render();
+  let changed = applyRange(params.get("range"));
+  if (!params.get("range") && zoomed()) { state.range = state.preset; paintRange(); changed = true; }
+  const sel = selectionFrom(params);
+  const wasOpen = drawerOpen();
+  if (sel) openDrawer(sel, state, { fromHistory: true });
+  else if (wasOpen) closeDrawer({ fromHistory: true });
+  if (!current || current.name !== tab || changed || (!sel && !wasOpen)) render();
 });
 
 // The header names the router the page is showing, so a demo instance and a
@@ -191,8 +267,6 @@ showRouter();
 setInterval(showRouter, 60000);
 render("initial");
 schedule();
-const { params } = readLocation();
-if (params.get("client")) openDrawer({ kind: "client", key: params.get("client") }, state);
-else if (params.get("domain")) openDrawer({ kind: "domain", key: params.get("domain") }, state);
-else if (params.get("interface")) openDrawer({ kind: "interface", key: params.get("interface") }, state);
+const initial = selectionFrom(readLocation().params);
+if (initial) openDrawer(initial, state, { fromHistory: true });
 clear(document.getElementById("toast"));

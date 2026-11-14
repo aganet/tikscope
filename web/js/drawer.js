@@ -6,28 +6,40 @@ import { fmtInt, fmtPct, fmtMs, fmtBps, fmtBytes, outcomes, outcomeLabel } from 
 import { stackedBars, lines, legend, bucketsToPoints, hideTooltip } from "./charts.js";
 import { rankedList, queriesTable, pager } from "./widgets.js";
 import { wifiBars } from "./views/devices.js";
+import { replaceLocation, pushLocation } from "./app.js";
 
 const el = () => document.getElementById("drawer");
 const body = () => document.getElementById("drawer-body");
 let selection = null;
 let ctrl = null;
 let page = 1;
+// Opening pushes a history entry, so the browser's back closes the drawer.
+let pushed = false;
 
 export function drawerOpen() { return selection !== null; }
 
-export function closeDrawer() {
+const currentTab = () => location.hash.split("?")[0].slice(1) || "overview";
+
+// {fromHistory: true} means the URL already changed: back, forward or a link.
+export function closeDrawer(opts = {}) {
   if (!selection) return;
+  if (!opts.fromHistory && pushed) {
+    history.back();
+    return;
+  }
   selection = null;
+  pushed = false;
   if (ctrl) ctrl.abort();
   el().hidden = true;
   hideTooltip();
-  const hash = location.hash.split("?")[0] || "#overview";
-  history.replaceState(null, "", hash);
+  if (!opts.fromHistory) replaceLocation(currentTab());
 }
 
 // openDrawer(null, state, {refresh:true}) redraws the current selection.
 export async function openDrawer(sel, state, opts = {}) {
+  if (sel && selection && sel.kind === selection.kind && sel.key === selection.key && !opts.refresh) return;
   if (sel && (!selection || sel.kind !== selection.kind || sel.key !== selection.key)) page = 1;
+  const wasOpen = selection !== null;
   if (sel) selection = sel;
   if (!selection) return;
   if (ctrl) ctrl.abort();
@@ -36,8 +48,10 @@ export async function openDrawer(sel, state, opts = {}) {
   el().hidden = false;
   if (!opts.refresh) {
     replace(body(), h("h2", { class: "mono" }, selection.key), h("p", { class: "sub" }, "Loading"));
-    const tab = location.hash.split("?")[0].slice(1) || "overview";
-    history.replaceState(null, "", `#${tab}?${selection.kind}=${encodeURIComponent(selection.key)}`);
+    const params = { [selection.kind]: selection.key };
+    if (opts.fromHistory) pushed = false;
+    else if (wasOpen) replaceLocation(currentTab(), params);
+    else { pushLocation(currentTab(), params); pushed = true; }
   }
   try {
     const render = { client: clientDetail, domain: domainDetail, interface: interfaceDetail }[selection.kind];

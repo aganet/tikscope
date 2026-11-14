@@ -47,11 +47,16 @@ and a list of what is wrong right now, all on one page.
   sensors, DHCP pool usage, DNS cache, adlists and probe state.
 
 Pick any time range from 1 hour to 30 days, or drag across a chart to zoom
-into that span; every page follows, and a double click or the x next to the
-range takes you back. The light and dark themes use Grafana's colors. Charts
-scale to their own peak, and the speedometers use your line speed if you set
-it, or the peak in range if you don't. Refreshes don't flicker. It works on a
-phone, and the wall mode (`#wall`) fits any screen without scrolling.
+into that span. Every page follows, the window is in the URL so a link or a
+reload keeps it, the arrows next to the range (or the arrow keys) pan it, and
+a double click or the x takes you back. "vs yesterday" or "vs last week" draws
+the same window from an earlier period as a dashed line on the throughput and
+DNS charts. The light and dark themes use Grafana's colors. Charts scale to
+their own peak, and the speedometers use your line speed if you set it, or the
+peak in range if you don't, and hold the last peak for five minutes. Refreshes
+don't flicker and wait while you hover a chart. The browser's back button
+closes a detail panel. It works on a phone, and the wall mode (`#wall`) fits
+any screen without scrolling.
 
 ## Screenshots
 

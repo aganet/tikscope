@@ -1,4 +1,5 @@
-import { draw, lines, legend, stackedBars, sparkline, gauge, peakHold, bucketsToPoints, niceMax } from "../charts.js";
+import { draw, lines, legend, stackedBars, sparkline, gauge, peakHold, bucketsToPoints, alignedPoints, niceMax } from "../charts.js";
+import { COMPARE, compareRange, compareLabel } from "../range.js";
 import { h, icon, card, sectionTitle } from "../dom.js";
 import { api } from "../api.js";
 import { fmtNum, fmtPct, fmtMs, fmtBps, fmtInt, fmtAgo, outcomes, outcomeTotals } from "../format.js";
@@ -8,16 +9,19 @@ const seriesColors = ["var(--viz-1)", "var(--viz-2)", "var(--viz-3)", "var(--viz
 
 export const overview = {
   async load(state, signal) {
-    const [dns, net, issues, events] = await Promise.all([
+    const cmp = compareRange(state);
+    const [dns, net, issues, events, prevDns, prevNet] = await Promise.all([
       api.dnsSummary(state.range, 8, signal),
       api.network(state.range, "", signal),
       api.issues(signal),
       api.events({ range: state.range, severity: "problem" }, 1, 6, signal),
+      cmp ? api.dnsSummary(cmp, 1, signal) : null,
+      cmp ? api.network(cmp, "", signal) : null,
     ]);
-    return { dns, net, issues, events };
+    return { dns, net, issues, events, prevDns, prevNet };
   },
 
-  render({ dns, net, issues, events }, state, { navigate, openDrawer }) {
+  render({ dns, net, issues, events, prevDns, prevNet }, state, { navigate, openDrawer }) {
     const blocks = [];
 
     blocks.push(issues.length
@@ -27,14 +31,14 @@ export const overview = {
       : allClear());
 
     if (net.router && net.router.identity) {
-      blocks.push(networkNow(net, state, { navigate, openDrawer }));
+      blocks.push(networkNow(net, state, { navigate, openDrawer }, 220, prevNet));
       blocks.push(interfaceCards(net, state, openDrawer));
     } else {
       blocks.push(h("div", { class: "card" }, h("b", null, "Router polling is not configured."), " ",
         h("span", { class: "muted" }, "Set MIKROTIK_URL, MIKROTIK_USER and MIKROTIK_PASSWORD to get throughput speedometers, interface graphs, system load and device bandwidth here.")));
     }
     if (net.probes.length) blocks.push(card(sectionTitle("zap", "sky", "Reachability", "Round trip time from the collector"), probeChart(net)));
-    blocks.push(dnsSection(dns, state, { navigate, openDrawer }));
+    blocks.push(dnsSection(dns, state, { navigate, openDrawer }, prevDns));
     blocks.push(h("div", { class: "grid cols-2" },
       card(sectionTitle("check", "green", "DNS outcomes", "As reported by the router"),
         segmentedBar(outcomes.map((o) => ({ key: o.filter, label: o.label, value: outcomeTotals(dns.totals.outcomes)[o.key], color: o.color, iconName: o.icon })), (k) => navigate("dns", { outcome: k }))),
@@ -76,7 +80,7 @@ function peak(buckets) {
   return Math.max(0, ...(buckets || []).map((b) => b.max || 0));
 }
 
-export function networkNow(net, state, { navigate, openDrawer }, chartHeight = 220) {
+export function networkNow(net, state, { navigate, openDrawer }, chartHeight = 220, prevNet = null) {
   const rx = net.throughput.rx || [], tx = net.throughput.tx || [];
   const down = current(net, "rx"), up = current(net, "tx");
   const downMax = net.limits.down || niceMax(Math.max(peak(rx), down || 0, 1e6));
@@ -94,10 +98,7 @@ export function networkNow(net, state, { navigate, openDrawer }, chartHeight = 2
     tile({ label: "Connections", value: fmtNum(r.connections), detail: r.max_connections ? `of ${fmtNum(r.max_connections)} tracked` : "Tracked by the firewall", iconName: "link", tone: "blue", spark: sparkline((net.system.connections || []).map((b) => b.avg), "var(--viz-1)"), onClick: () => navigate("network") }));
   const chart = h("div", { class: "fill", style: { marginTop: "16px" } });
   draw(() => {
-    const series = [
-      { label: "Download", color: "var(--viz-1)", points: bucketsToPoints(rx) },
-      { label: "Upload", color: "var(--viz-2)", points: bucketsToPoints(tx) },
-    ];
+    const series = throughputSeries(net, state, prevNet);
     lines(chart, { series, bucketSecs: net.bucket_secs, height: chartHeight, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true });
     chart.appendChild(legend(series, true));
   });
@@ -129,7 +130,21 @@ export function interfaceCards(net, state, openDrawer, max = 8, chartHeight = 11
     })));
 }
 
-function dnsSection(dns, state, { navigate, openDrawer }) {
+// The comparison line is only the download: two more dashed lines would
+// bury the live ones.
+function throughputSeries(net, state, prevNet) {
+  const rx = net.throughput.rx || [], tx = net.throughput.tx || [];
+  const series = [
+    { label: "Download", color: "var(--viz-1)", points: bucketsToPoints(rx) },
+    { label: "Upload", color: "var(--viz-2)", points: bucketsToPoints(tx) },
+  ];
+  if (prevNet && COMPARE[state.compare]) {
+    series.push({ label: `Download ${compareLabel(state)}`, color: "var(--viz-1)", dash: true, points: alignedPoints(rx, prevNet.throughput.rx, COMPARE[state.compare].secs) });
+  }
+  return series;
+}
+
+function dnsSection(dns, state, { navigate, openDrawer }, prevDns = null) {
   const t = dns.totals;
   const byOutcome = outcomeTotals(t.outcomes);
   const problems = byOutcome.nxdomain + byOutcome.blocked + byOutcome.failed;
@@ -138,7 +153,7 @@ function dnsSection(dns, state, { navigate, openDrawer }) {
   draw(() => {
     const present = outcomes.filter((o) => dns.timeline.some((b) => b[o.key] > 0));
     const series = present.length ? present : [outcomes[0]];
-    stackedBars(chart, { buckets: dns.timeline, bucketSecs: dns.bucket_secs, series, height: 180 });
+    stackedBars(chart, { buckets: dns.timeline, bucketSecs: dns.bucket_secs, series, height: 180, overlay: dnsOverlay(dns, state, prevDns) });
     if (series.length > 1) chart.appendChild(legend(series));
   });
   return h("div", { class: "grid", style: { gap: "12px" } },
@@ -162,13 +177,16 @@ export function bucketText(secs) {
   return secs >= 3600 ? `${secs / 3600}h` : secs >= 60 ? `${secs / 60}min` : `${secs}s`;
 }
 
-export function throughputChart(net, state, height = 200) {
+// Total queries of the earlier window as a dashed line over the outcome bars.
+export function dnsOverlay(dns, state, prevDns) {
+  if (!prevDns || !COMPARE[state.compare]) return null;
+  return { label: `Queries ${compareLabel(state)}`, color: "var(--text-2)", points: alignedPoints(dns.timeline, prevDns.timeline, COMPARE[state.compare].secs, "total") };
+}
+
+export function throughputChart(net, state, height = 200, prevNet = null) {
   const el = h("div");
   draw(() => {
-    const series = [
-      { label: "Download", color: "var(--viz-1)", points: bucketsToPoints(net.throughput.rx || []) },
-      { label: "Upload", color: "var(--viz-2)", points: bucketsToPoints(net.throughput.tx || []) },
-    ];
+    const series = throughputSeries(net, state, prevNet);
     lines(el, { series, bucketSecs: net.bucket_secs, height, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true });
     el.appendChild(legend(series, true));
   });

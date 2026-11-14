@@ -6,7 +6,16 @@ import { fmtNum, fmtAgo, tickFormatter, bucketLabel } from "./format.js";
 const PAD = { top: 8, right: 8, bottom: 22, left: 48 };
 const tooltipEl = () => document.getElementById("tooltip");
 
+let lastPointer = 0, dragging = false;
+
+// True while the pointer is on a chart, so a refresh does not sweep away a
+// tooltip or a selection in progress.
+export function interacting() {
+  return dragging || (!tooltipEl().hidden && Date.now() - lastPointer < 5000);
+}
+
 function showTooltip(x, y, title, rows) {
+  lastPointer = Date.now();
   const el = tooltipEl();
   clear(el);
   el.appendChild(h("div", { class: "t" }, title));
@@ -49,6 +58,7 @@ function brush(svg, hover, { width, plotW, plotH, times, bucketSecs }) {
   hover.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     x0 = px(e);
+    dragging = true;
     hover.setPointerCapture(e.pointerId);
   });
   hover.addEventListener("pointermove", (e) => {
@@ -59,7 +69,7 @@ function brush(svg, hover, { width, plotW, plotH, times, bucketSecs }) {
     sel.style.display = "";
     hideTooltip();
   });
-  const cancel = () => { x0 = null; sel.style.display = "none"; };
+  const cancel = () => { x0 = null; dragging = false; sel.style.display = "none"; };
   hover.addEventListener("pointerup", (e) => {
     if (x0 === null) return;
     const a = x0, b = px(e);
@@ -73,12 +83,19 @@ function brush(svg, hover, { width, plotW, plotH, times, bucketSecs }) {
   hover.addEventListener("dblclick", () => zoom.out());
 }
 
-export function niceMax(v) {
-  if (v <= 0) return 1;
+// A round tick step of about a quarter of the value, 1, 2, 2.5 or 5 times a
+// power of ten.
+function niceStep(v) {
   const p = Math.pow(10, Math.floor(Math.log10(v)));
   const n = v / p;
-  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
-  return step * p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p;
+}
+
+// The axis top: the first tick above the peak, so the data fills the plot.
+export function niceMax(v) {
+  if (v <= 0) return 1;
+  const step = niceStep(v / 4);
+  return Math.ceil(v / step - 1e-9) * step;
 }
 
 // A chart height is a pixel count or a function of the container, see fillHeight.
@@ -92,10 +109,16 @@ export function fillHeight(reserve = 0, fallback = 200) {
   return (el) => (el.clientHeight ? Math.max(40, el.clientHeight - reserve) : fallback);
 }
 
-// Fewer y labels on short charts so they never overlap.
+// One label per tick step, thinned on short charts so they never overlap.
 function yTicks(max, plotH) {
-  const steps = plotH < 24 ? [1] : plotH < 50 ? [0, 1] : plotH < 110 ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1];
-  return steps.map((f) => f * max);
+  const step = niceStep(max / 4);
+  const all = [];
+  for (let t = 0; t <= max + step / 2; t += step) all.push(Math.min(t, max));
+  const room = plotH < 24 ? 1 : plotH < 50 ? 2 : plotH < 110 ? 3 : 5;
+  if (all.length <= room) return all;
+  if (room === 1) return [max];
+  const every = Math.ceil((all.length - 1) / (room - 1));
+  return all.filter((_, i) => i % every === 0 || i === all.length - 1);
 }
 
 function frame(width, height, bucketSecs, times, maxY, yFormat) {
@@ -121,11 +144,21 @@ function frame(width, height, bucketSecs, times, maxY, yFormat) {
 }
 
 export function legend(series, line = false) {
-  return h("div", { class: "legend" }, series.map((s) => h("span", null, h("i", { class: line ? "line" : "", style: { background: s.color } }), s.label)));
+  return h("div", { class: "legend" }, series.map((s) => h("span", null,
+    h("i", { class: s.dash ? "line dash" : line ? "line" : "", style: s.dash ? { borderColor: s.color } : { background: s.color } }), s.label)));
+}
+
+// Points of an earlier window moved onto the current one's timestamps, so a
+// comparison line shares the x axis. Buckets with no counterpart are gaps.
+export function alignedPoints(buckets, previous, shiftSecs, field = "avg") {
+  const byTS = new Map((previous || []).map((b) => [b.ts + shiftSecs, b[field]]));
+  return buckets.map((b) => ({ ts: b.ts, v: byTS.has(b.ts) ? byTS.get(b.ts) : null }));
 }
 
 // Stacked columns. buckets: [{ts, ...}], series: [{key, label, color}].
-export function stackedBars(container, { buckets, bucketSecs, series, height = 220, yFormat = fmtNum, valueFormat = fmtNum }) {
+// overlay: {label, color, points} draws a dashed line over the bars, for the
+// same window in an earlier period.
+export function stackedBars(container, { buckets, bucketSecs, series, height = 220, yFormat = fmtNum, valueFormat = fmtNum, overlay = null }) {
   clear(container);
   container.classList.add("chart");
   const width = Math.max(120, container.clientWidth || 600);
@@ -135,7 +168,8 @@ export function stackedBars(container, { buckets, bucketSecs, series, height = 2
     return;
   }
   const totals = buckets.map((b) => series.reduce((s, k) => s + (b[k.key] || 0), 0));
-  const maxY = niceMax(Math.max(...totals));
+  const overlayVals = overlay ? overlay.points.map((p) => p.v).filter((v) => v !== null && v !== undefined) : [];
+  const maxY = niceMax(Math.max(...totals, ...overlayVals));
   const { svg, plotW, plotH } = frame(width, height, bucketSecs, buckets.map((b) => b.ts), maxY, yFormat);
   const n = buckets.length;
   const slot = plotW / n;
@@ -156,11 +190,21 @@ export function stackedBars(container, { buckets, bucketSecs, series, height = 2
     rect.addEventListener("pointermove", (e) => showTooltip(e.clientX, e.clientY, bucketLabel(b.ts, bucketSecs), [
       { label: "Total", value: valueFormat(totals[i]) },
       ...series.map((s) => ({ label: s.label, value: valueFormat(b[s.key] || 0), color: s.color })),
+      ...(overlay ? [{ label: overlay.label, value: overlay.points[i] && overlay.points[i].v !== null ? valueFormat(overlay.points[i].v) : "-", color: overlay.color }] : []),
     ]));
     rect.addEventListener("pointerleave", hideTooltip);
     hover.appendChild(rect);
   });
   svg.appendChild(bars);
+  if (overlay) {
+    let d = "", open = false;
+    overlay.points.forEach((p, i) => {
+      if (p.v === null || p.v === undefined) { open = false; return; }
+      d += `${open ? " L" : " M"}${(PAD.left + (i + 0.5) * slot).toFixed(1)} ${(PAD.top + plotH - (Math.min(p.v, maxY) / maxY) * plotH).toFixed(1)}`;
+      open = true;
+    });
+    svg.appendChild(h("svg:path", { d, fill: "none", stroke: overlay.color, "stroke-width": "2", "stroke-dasharray": "5 4", "stroke-opacity": "0.85", "stroke-linejoin": "round" }));
+  }
   svg.appendChild(hover);
   brush(svg, hover, { width, plotW, plotH, times: buckets.map((b) => b.ts), bucketSecs });
   container.appendChild(svg);
@@ -209,7 +253,8 @@ export function lines(container, { series, bucketSecs, height = 200, yFormat = f
     });
     if (start !== null) areaD += ` L${xAt(s.points.length - 1)} ${PAD.top + plotH} Z`;
     if (area && series.length === 1) svg.appendChild(h("svg:path", { d: areaD, fill: s.color, "fill-opacity": "0.1" }));
-    svg.appendChild(h("svg:path", { d, fill: "none", stroke: s.color, "stroke-width": "2", "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    svg.appendChild(h("svg:path", { d, fill: "none", stroke: s.color, "stroke-width": "2", "stroke-linejoin": "round", "stroke-linecap": "round",
+      "stroke-dasharray": s.dash ? "5 4" : null, "stroke-opacity": s.dash ? "0.85" : null }));
   }
   const cross = h("svg:line", { class: "crosshair", y1: PAD.top, y2: PAD.top + plotH, style: { display: "none" } });
   const dots = series.map((s) => h("svg:circle", { r: 4, fill: s.color, stroke: "var(--surface)", "stroke-width": "2", style: { display: "none" } }));

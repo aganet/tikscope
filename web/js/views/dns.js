@@ -4,7 +4,8 @@ import { api } from "../api.js";
 import { fmtNum, fmtPct, fmtMs, fmtInt, outcomes, outcomeTotals } from "../format.js";
 import { stackedBars, lines, legend, bucketsToPoints } from "../charts.js";
 import { tile, rankedList, segmentedBar, queriesTable, pager } from "../widgets.js";
-import { bucketText } from "./overview.js";
+import { bucketText, dnsOverlay } from "./overview.js";
+import { compareRange } from "../range.js";
 
 const outcomeOptions = [["", "Any outcome"], ["resolved", "Resolved"], ["problem", "Any problem"], ["nxdomain", "NXDOMAIN"], ["blocked", "Blocked"], ["failed", "Failed"], ["nodata", "No data"], ["unknown", "No reply"]];
 
@@ -20,14 +21,16 @@ export const dns = {
   async load(state, signal) {
     const f = filterState(state);
     const apiFilter = { range: state.range, search: f.search, client: f.client, type: f.type.toUpperCase(), outcome: f.outcome };
-    const [summary, log] = await Promise.all([
+    const cmp = compareRange(state);
+    const [summary, log, prevSummary] = await Promise.all([
       api.dnsSummary(state.range, 10, signal),
       api.dnsQueries(apiFilter, f.page, f.pageSize, signal),
+      cmp ? api.dnsSummary(cmp, 1, signal) : null,
     ]);
-    return { summary, log, apiFilter };
+    return { summary, log, apiFilter, prevSummary };
   },
 
-  render({ summary, log, apiFilter }, state, { openDrawer }) {
+  render({ summary, log, apiFilter, prevSummary }, state, { openDrawer }) {
     const f = filterState(state);
     const t = summary.totals;
     const byOutcome = outcomeTotals(t.outcomes);
@@ -47,7 +50,7 @@ export const dns = {
     draw(() => {
       const present = outcomes.filter((o) => summary.timeline.some((b) => b[o.key] > 0));
       const series = present.length ? present : [outcomes[0]];
-      stackedBars(timelineEl, { buckets: summary.timeline, bucketSecs: summary.bucket_secs, series, height: 220 });
+      stackedBars(timelineEl, { buckets: summary.timeline, bucketSecs: summary.bucket_secs, series, height: 220, overlay: dnsOverlay(summary, state, prevSummary) });
       if (series.length > 1) timelineEl.appendChild(legend(series));
       const hasLatency = summary.timeline.some((b) => b.latency_ms !== null);
       if (hasLatency) lines(latencyEl, { series: [{ label: "Avg response", color: "var(--viz-1)", points: bucketsToPoints(summary.timeline, "latency_ms") }], bucketSecs: summary.bucket_secs, height: 160, yFormat: (v) => fmtMs(v), valueFormat: fmtMs, area: true });

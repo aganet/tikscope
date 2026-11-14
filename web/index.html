@@ -17,6 +17,7 @@
     </div>
   </div>
   <div class="controls">
+    <button id="pan-left" class="icon-btn" title="Earlier (left arrow)" aria-label="Earlier" hidden></button>
     <select id="range" aria-label="Time range">
       <option value="1h">Last hour</option>
       <option value="6h">Last 6 hours</option>
@@ -24,7 +25,13 @@
       <option value="7d">Last 7 days</option>
       <option value="30d">Last 30 days</option>
     </select>
+    <button id="pan-right" class="icon-btn" title="Later (right arrow)" aria-label="Later" hidden></button>
     <button id="zoom-out" class="icon-btn" title="Clear zoom, back to the selected range" aria-label="Clear zoom" hidden></button>
+    <select id="compare" aria-label="Compare with an earlier period">
+      <option value="">No comparison</option>
+      <option value="1d">vs yesterday</option>
+      <option value="7d">vs last week</option>
+    </select>
     <div class="refresh" id="refresh-box">
       <button id="pause" class="icon-btn" title="Pause auto refresh" aria-label="Pause auto refresh"></button>
       <select id="interval" aria-label="Refresh interval">
