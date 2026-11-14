@@ -278,7 +278,7 @@ td.nowrap { white-space: nowrap; }
 .gauge .tick { fill: var(--muted); font-size: 10px; }
 .gauge .value { fill: var(--text); font-size: 34px; font-weight: 650; letter-spacing: -.03em; }
 .gauge .unit { fill: var(--text-2); font-size: 13px; font-weight: 500; }
-.gauge-label { text-align: center; font-size: 14px; margin-top: -26px; }
+.gauge-label { text-align: center; font-size: 14px; margin-top: -26px; line-height: 1.3; }
 .gauge-label span { display: block; font-size: 12px; }
 .gauges { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 240px; gap: 12px; align-items: stretch; }
 @media (max-width: 900px) { .gauges { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .gauges .stat-col { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: auto; } }

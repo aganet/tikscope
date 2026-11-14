@@ -1,7 +1,7 @@
 // Hand-rolled SVG charts: stacked columns, multi-series lines and sparklines.
 // Marks are thin, grids are hairlines, and every chart carries a hover layer.
 import { h, clear } from "./dom.js";
-import { fmtNum, tickFormatter, bucketLabel } from "./format.js";
+import { fmtNum, fmtAgo, tickFormatter, bucketLabel } from "./format.js";
 
 const PAD = { top: 8, right: 8, bottom: 22, left: 48 };
 const tooltipEl = () => document.getElementById("tooltip");
@@ -270,7 +270,18 @@ export function draw(fn) {
 
 // Speedometer: a 270 degree arc opening at the bottom, the live value in the
 // centre, major ticks labelled outside the arc and a marker at the tip.
-export function gauge(container, { value, max, label, color, format, sub }) {
+// Peak hold like an analog meter: the highest value seen stays marked on the
+// arc for a while, then the marker resets to the live value.
+const HOLD_MS = 5 * 60 * 1000;
+const peaks = new Map();
+export function peakHold(key, value, now = Date.now()) {
+  const v = value === null || value === undefined ? 0 : value;
+  const held = peaks.get(key);
+  if (!held || v >= held.value || now - held.at > HOLD_MS) peaks.set(key, { value: v, at: now });
+  return peaks.get(key);
+}
+
+export function gauge(container, { value, max, label, color, format, sub, peak }) {
   clear(container);
   container.classList.add("gauge");
   const W = 320, H = 250, cx = 160, cy = 130, r = 90, stroke = 14;
@@ -308,10 +319,17 @@ export function gauge(container, { value, max, label, color, format, sub }) {
   }
   // The marker is always drawn so an idle link still shows where the needle is.
   if (frac > 0.002) svg.appendChild(h("svg:path", { d: arc(start, angle, r), fill: "none", stroke: `url(#${gid})`, "stroke-width": stroke, "stroke-linecap": "round" }));
+  if (peak && peak.value > v) {
+    const pa = start + Math.max(0, Math.min(1, max > 0 ? peak.value / max : 0)) * (end - start);
+    const [x1, y1] = point(pa, r - stroke / 2 - 2), [x2, y2] = point(pa, r + stroke / 2 + 2);
+    svg.appendChild(h("svg:line", { x1, y1, x2, y2, stroke: color, "stroke-width": "3", "stroke-linecap": "round" }));
+  }
   const [mx, my] = point(angle, r);
   svg.appendChild(h("svg:circle", { cx: mx, cy: my, r: stroke / 2 + 3, fill: "var(--surface)", stroke: color, "stroke-width": "3" }));
   svg.appendChild(h("svg:text", { x: cx, y: cy + 2, "text-anchor": "middle", class: "value" }, format(v).split(" ")[0]));
   svg.appendChild(h("svg:text", { x: cx, y: cy + 24, "text-anchor": "middle", class: "unit" }, format(v).split(" ")[1] || ""));
   container.appendChild(svg);
-  container.appendChild(h("div", { class: "gauge-label" }, h("b", null, label), sub ? h("span", { class: "muted" }, sub) : null));
+  container.appendChild(h("div", { class: "gauge-label" }, h("b", null, label),
+    peak ? h("span", { class: "muted" }, `peak ${format(peak.value)}, ${fmtAgo(peak.at / 1000)}`) : null,
+    sub ? h("span", { class: "muted" }, sub) : null));
 }
