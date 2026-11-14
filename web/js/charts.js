@@ -355,30 +355,35 @@ export function draw(fn) {
   requestAnimationFrame(fn);
 }
 
-// Speedometer: a 270 degree arc opening at the bottom, the live value in the
-// centre, major ticks labelled outside the arc and a marker at the tip.
 // Peak hold like a transceiver's meter: the marker sits at the highest value
-// for HOLD_MS, then falls back to the needle over DECAY_MS. Returns null once
-// it has caught up.
-const HOLD_MS = 15 * 1000, DECAY_MS = 45 * 1000;
+// for HOLD_MS, then falls back to the needle over DECAY_MS. The text under
+// the gauge always names the highest reading of the last RECENT_MS, so it
+// never appears or disappears.
+const HOLD_MS = 15 * 1000, DECAY_MS = 45 * 1000, RECENT_MS = 5 * 60 * 1000;
 const peaks = new Map();
 export function peakHold(key, value, now = Date.now()) {
   const v = value === null || value === undefined ? 0 : value;
-  const held = peaks.get(key);
-  if (!held || v >= held.top) {
-    peaks.set(key, { top: v, at: now });
-    return null;
+  let p = peaks.get(key);
+  if (!p) peaks.set(key, (p = { top: v, at: now, readings: [] }));
+  p.readings.push({ v, at: now });
+  while (p.readings.length && now - p.readings[0].at > RECENT_MS) p.readings.shift();
+  const recent = p.readings.reduce((a, b) => (b.v >= a.v ? b : a));
+  let marker = null;
+  if (v >= p.top) Object.assign(p, { top: v, at: now });
+  else {
+    const fall = Math.max(0, now - p.at - HOLD_MS) / DECAY_MS;
+    marker = p.top - (p.top - v) * Math.min(1, fall);
+    if (marker <= v) {
+      Object.assign(p, { top: v, at: now });
+      marker = null;
+    }
   }
-  const fall = Math.max(0, now - held.at - HOLD_MS) / DECAY_MS;
-  const marker = held.top - (held.top - v) * Math.min(1, fall);
-  if (marker <= v) {
-    peaks.set(key, { top: v, at: now });
-    return null;
-  }
-  return { value: marker, top: held.top, at: held.at };
+  return { marker, top: recent.v, at: recent.at };
 }
 
-export function gauge(container, { value, max, label, color, format, sub, peak }) {
+// Speedometer: a 270 degree arc opening at the bottom, the live value in the
+// centre, major ticks labelled outside the arc and a marker at the tip.
+export function gauge(container, { value, max, label, color, format, peak }) {
   clear(container);
   container.classList.add("gauge");
   const W = 320, H = 250, cx = 160, cy = 130, r = 90, stroke = 14;
@@ -419,8 +424,8 @@ export function gauge(container, { value, max, label, color, format, sub, peak }
   }
   // The marker is always drawn so an idle link still shows where the needle is.
   if (frac > 0.002) svg.appendChild(h("svg:path", { d: arc(start, angle, r), fill: "none", stroke: `url(#${gid})`, "stroke-width": stroke, "stroke-linecap": "round" }));
-  if (peak && peak.value > v) {
-    const pa = start + Math.max(0, Math.min(1, max > 0 ? peak.value / max : 0)) * (end - start);
+  if (peak && peak.marker !== null && peak.marker > v) {
+    const pa = start + Math.max(0, Math.min(1, max > 0 ? peak.marker / max : 0)) * (end - start);
     const [x1, y1] = point(pa, r - stroke / 2 - 2), [x2, y2] = point(pa, r + stroke / 2 + 2);
     svg.appendChild(h("svg:line", { x1, y1, x2, y2, stroke: color, "stroke-width": "3", "stroke-linecap": "round" }));
   }
@@ -430,6 +435,5 @@ export function gauge(container, { value, max, label, color, format, sub, peak }
   svg.appendChild(h("svg:text", { x: cx, y: cy + 24, "text-anchor": "middle", class: "unit" }, format(v).split(" ")[1] || ""));
   container.appendChild(svg);
   container.appendChild(h("div", { class: "gauge-label" }, h("b", null, label),
-    peak ? h("span", { class: "muted" }, `peak ${format(peak.top)}, ${fmtAgo(peak.at / 1000)}`) : null,
-    sub ? h("span", { class: "muted" }, sub) : null));
+    h("span", { class: "muted" }, peak ? `peak ${format(peak.top)}, ${fmtAgo(peak.at / 1000)}` : "\u00a0")));
 }

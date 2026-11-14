@@ -348,7 +348,6 @@ body.wall .card-head { margin-bottom: 8px; }
   body.wall .gauges { grid-template-columns: 1fr 1fr; gap: 8px; }
   body.wall .gauge svg { max-width: 170px; }
   body.wall .gauge-label { margin-top: -10px; font-size: 13px; }
-  body.wall .gauge-label span + span { display: none; }
   body.wall .gauges .stat-col { grid-column: 1 / -1; grid-template-columns: 1fr; gap: 6px; }
   body.wall .gauges .stat-col .tile { padding: 6px 12px; }
   body.wall .gauges .stat-col .tile .spark { display: none; }

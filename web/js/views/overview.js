@@ -89,8 +89,8 @@ export function networkNow(net, state, { navigate, openDrawer }, chartHeight = 2
   const upMax = net.limits.up || niceMax(Math.max(avgPeak(tx), up || 0, 1e6));
   const gDown = h("div"), gUp = h("div");
   draw(() => {
-    gauge(gDown, { value: down, max: downMax, label: "Download", color: "var(--viz-1)", format: fmtBps, peak: peakHold(`${net.wan}:rx`, down), sub: net.limits.down ? "of configured line speed" : `scale from peak ${fmtBps(avgPeak(rx))} in range` });
-    gauge(gUp, { value: up, max: upMax, label: "Upload", color: "var(--viz-2)", format: fmtBps, peak: peakHold(`${net.wan}:tx`, up), sub: net.limits.up ? "of configured line speed" : `scale from peak ${fmtBps(avgPeak(tx))} in range` });
+    gauge(gDown, { value: down, max: downMax, label: "Download", color: "var(--viz-1)", format: fmtBps, peak: peakHold(`${net.wan}:rx`, down) });
+    gauge(gUp, { value: up, max: upMax, label: "Upload", color: "var(--viz-2)", format: fmtBps, peak: peakHold(`${net.wan}:tx`, up) });
   });
   const probe = net.probes[0];
   const r = net.router;
