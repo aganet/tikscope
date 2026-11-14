@@ -6,6 +6,7 @@ import { fmtInt, fmtPct, fmtMs, fmtBps, fmtBytes, outcomes, outcomeLabel } from 
 import { stackedBars, lines, legend, bucketsToPoints, hideTooltip } from "./charts.js";
 import { rankedList, queriesTable, pager } from "./widgets.js";
 import { wifiBars } from "./views/devices.js";
+import { chartScale } from "./views/overview.js";
 import { replaceLocation, pushLocation } from "./app.js";
 
 const el = () => document.getElementById("drawer");
@@ -113,7 +114,7 @@ async function clientDetail(ip, state, signal) {
         { label: "Download", color: "var(--viz-1)", points: bucketsToPoints(rx.series[0] ? rx.series[0].buckets : []) },
         { label: "Upload", color: "var(--viz-2)", points: bucketsToPoints(tx.series[0] ? tx.series[0].buckets : []) },
       ].filter((s) => s.points.length);
-      lines(chart, { series, bucketSecs: rx.bucket_secs, height: 170, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true });
+      lines(chart, { series, bucketSecs: rx.bucket_secs, height: 170, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true, scale: chartScale() });
       chart.appendChild(legend(series, true));
     });
     return h("section", null, h("h3", null, "Bandwidth"), chart);
@@ -199,7 +200,7 @@ async function interfaceDetail(name, state, signal) {
       { label: "Download", color: "var(--viz-1)", points: bucketsToPoints(net.throughput.rx || []) },
       { label: "Upload", color: "var(--viz-2)", points: bucketsToPoints(net.throughput.tx || []) },
     ];
-    lines(chart, { series, bucketSecs: net.bucket_secs, height: 200, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true });
+    lines(chart, { series, bucketSecs: net.bucket_secs, height: 200, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true, scale: chartScale() });
     chart.appendChild(legend(series, true));
   });
   const sum = (m) => (m.series[0] ? m.series[0].buckets.reduce((a, b) => a + (b.avg || 0) * b.n, 0) : 0);

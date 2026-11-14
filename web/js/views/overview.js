@@ -101,12 +101,12 @@ export function networkNow(net, state, { navigate, openDrawer }, chartHeight = 2
   const chart = h("div", { class: "fill", style: { marginTop: "16px" } });
   draw(() => {
     const series = throughputSeries(net, state, prevNet);
-    lines(chart, { series, bucketSecs: net.bucket_secs, height: chartHeight, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true });
+    lines(chart, { series, bucketSecs: net.bucket_secs, height: chartHeight, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true, scale: chartScale() });
     chart.appendChild(legend(series, true));
   });
   return h("div", { class: "card" },
-    h("div", { class: "card-head" }, sectionTitle("download", "green", `${r.identity} on ${net.wan || "WAN"}`, `Live rate from the last poll, ${bucketText(net.bucket_secs)} averages on the chart`),
-      h("button", { class: "btn small", onclick: () => navigate("network") }, "Network details")),
+    h("div", { class: "card-head" }, sectionTitle("download", "green", `${r.identity} on ${net.wan || "WAN"}`, `Live rate from the last poll, ${bucketText(net.bucket_secs)} averages and peaks on the chart`),
+      h("div", { class: "head-tools" }, scaleToggle(), h("button", { class: "btn small", onclick: () => navigate("network") }, "Network details"))),
     h("div", { class: "gauges" }, gDown, gUp, stats),
     chart);
 }
@@ -130,6 +130,21 @@ export function interfaceCards(net, state, openDrawer, max = 8, chartHeight = 11
         h("div", { class: "nums" }, h("span", null, "down ", h("b", null, fmtBps(i.rx_bps))), h("span", null, "up ", h("b", null, fmtBps(i.tx_bps))), i.errors ? h("span", null, "errors ", h("b", null, fmtInt(i.errors))) : null),
         el);
     })));
+}
+
+// The y axis of the throughput charts: auto, linear or log, remembered.
+export function chartScale() {
+  try { return localStorage.getItem("tikscope.scale") || "auto"; } catch { return "auto"; }
+}
+
+export function scaleToggle() {
+  const cur = chartScale();
+  const btn = (v, label, title) => h("button", { type: "button", class: cur === v ? "active" : "", title, onclick: () => {
+    try { localStorage.setItem("tikscope.scale", v); } catch {}
+    document.getElementById("refresh").click();
+  } }, label);
+  return h("div", { class: "seg-group", role: "group", "aria-label": "Y axis scale" },
+    btn("auto", "Auto", "Log when bursts dwarf the usual traffic"), btn("linear", "Linear", "Linear y axis"), btn("log", "Log", "Logarithmic y axis"));
 }
 
 // The comparison line is only the download: two more dashed lines would
@@ -189,7 +204,7 @@ export function throughputChart(net, state, height = 200, prevNet = null) {
   const el = h("div");
   draw(() => {
     const series = throughputSeries(net, state, prevNet);
-    lines(el, { series, bucketSecs: net.bucket_secs, height, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true });
+    lines(el, { series, bucketSecs: net.bucket_secs, height, yFormat: (v) => fmtBps(v), valueFormat: fmtBps, band: true, scale: chartScale() });
     el.appendChild(legend(series, true));
   });
   return el;

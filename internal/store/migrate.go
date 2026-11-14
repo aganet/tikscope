@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 // Each entry upgrades the database from the previous version. Entry 0 is
 // the initial schema.
@@ -71,6 +71,11 @@ var migrations = [...][]string{
 			ip TEXT NOT NULL DEFAULT '',
 			agent TEXT NOT NULL DEFAULT '')`,
 		`CREATE INDEX sessions_user ON sessions(user_id)`,
+	},
+	{
+		// Packet dumps (dns,packet) were stored as events before ingest
+		// dropped them; they were most of the table.
+		`DELETE FROM events WHERE ',' || topics || ',' LIKE '%,packet,%'`,
 	},
 }
 

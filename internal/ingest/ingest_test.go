@@ -76,6 +76,16 @@ func TestCorrelation(t *testing.T) {
 	}
 }
 
+func TestPacketDumpsSkipped(t *testing.T) {
+	sink := &memSink{}
+	in := New(sink, nil, slog.Default())
+	in.Handle("r", "dns,packet <:NS:330128=b.root-servers.net.>", time.Now())
+	in.Handle("r", "system,info router rebooted", time.Now())
+	if len(sink.events) != 1 || sink.events[0].Topics != "system,info" || in.Stats().Packets != 1 {
+		t.Fatalf("events %+v, packets %d", sink.events, in.Stats().Packets)
+	}
+}
+
 func TestReusedIDReleasesOld(t *testing.T) {
 	sink := &memSink{}
 	in := New(sink, nil, slog.Default())

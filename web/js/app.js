@@ -32,6 +32,8 @@ export const state = {
 const main = document.getElementById("main");
 let current = null; // {name, ctrl}
 let timer = null;
+const inflight = new Set(); // controllers of loads still running
+let seq = 0, painted = 0; // render sequence numbers: started, last painted
 
 function readLocation() {
   const hash = location.hash.slice(1);
@@ -119,27 +121,46 @@ function pan(dir) {
   if (a !== from) zoomTo(a, a + width);
 }
 
+// A refresh swaps the page in place once the data is there. A tab change
+// clears the old page at once, or on a slow link it looks like the click
+// did not take; the progress bar runs while anything loads.
 async function render(reason = "refresh") {
   const { tab } = readLocation();
-  if (current && current.name !== tab && current.ctrl) current.ctrl.abort();
+  const switching = current && current.name !== tab;
+  // Every load of the old page is cancelled, not just the newest: a slow
+  // one finishing later must never paint over the page the user chose.
+  if (switching) for (const c of inflight) c.abort();
   const ctrl = new AbortController();
+  inflight.add(ctrl);
+  const mine = ++seq;
   current = { name: tab, ctrl };
   state.tab = tab;
   for (const a of document.querySelectorAll("#tabs a")) a.classList.toggle("active", a.dataset.tab === tab);
   document.body.classList.toggle("wall", tab === "wall");
+  if (switching) {
+    hideTooltip();
+    replace(main, h("div", { class: "view" }, h("p", { class: "loading" }, `Loading ${document.querySelector(`#tabs a[data-tab="${tab}"]`).textContent}`)));
+  }
+  document.body.classList.add("loading");
   try {
     const view = views[tab];
     const data = await view.load(state, ctrl.signal);
-    if (ctrl.signal.aborted) return;
+    // Stale: cancelled, the page changed meanwhile, or a newer load of this
+    // page has already been painted.
+    if (ctrl.signal.aborted || readLocation().tab !== tab || mine < painted) return;
     hideTooltip();
+    painted = mine;
     await swapView(view.render(data, state, { navigate, openDrawer }));
     document.getElementById("updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
     main.dataset.lastData = "1";
     if (drawerOpen()) openDrawer(null, state, { refresh: true });
   } catch (err) {
     if (ctrl.signal.aborted) return;
-    if (reason === "initial" || !main.dataset.lastData) replace(main, h("div", { class: "error-banner" }, `Could not load data: ${err.message}`));
+    if (reason === "initial" || switching || !main.dataset.lastData) replace(main, h("div", { class: "error-banner" }, `Could not load data: ${err.message}`));
     document.getElementById("updated").textContent = `Error: ${err.message}`;
+  } finally {
+    inflight.delete(ctrl);
+    if (inflight.size === 0) document.body.classList.remove("loading");
   }
 }
 
@@ -158,7 +179,9 @@ function schedule() {
   clearInterval(timer);
   timer = null;
   if (!state.autoRefresh) return;
-  timer = setInterval(() => { if (document.visibilityState === "visible" && !interacting()) render(); }, state.interval * 1000);
+  // A tick is skipped while the last load is still running, so a slow link
+  // never stacks up requests.
+  timer = setInterval(() => { if (document.visibilityState === "visible" && !interacting() && inflight.size === 0) render(); }, state.interval * 1000);
 }
 
 function applyTheme(theme) {

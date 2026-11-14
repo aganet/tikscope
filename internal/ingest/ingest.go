@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,6 +57,7 @@ type Ingester struct {
 	events   atomic.Int64
 	leases   atomic.Int64
 	rejected atomic.Int64
+	packets  atomic.Int64
 }
 
 type Stats struct {
@@ -66,6 +68,7 @@ type Stats struct {
 	Events   int64            `json:"events"`
 	Leases   int64            `json:"leases"`
 	Rejected int64            `json:"rejected"` // datagrams from sources outside the allowlist
+	Packets  int64            `json:"packets"`  // packet dump lines, not stored
 	Pending  int              `json:"pending"`
 	Routers  map[string]int64 `json:"routers"` // last message time per source address
 }
@@ -208,6 +211,12 @@ func (in *Ingester) Handle(router, raw string, now time.Time) {
 		p.answers = append(p.answers, line.Answers...)
 		in.mu.Unlock()
 	default:
+		// "dns,packet" and the like dump every packet, tens per second, and
+		// would bury the real router log.
+		if slices.Contains(line.Topics, "packet") {
+			in.packets.Add(1)
+			return
+		}
 		in.events.Add(1)
 		in.sink.AddEvent(store.Event{TS: now, Router: router, Topics: strings.Join(line.Topics, ","), Severity: line.Severity, Message: line.Message})
 		if line.Lease != nil {
@@ -266,6 +275,7 @@ func (in *Ingester) Stats() Stats {
 		Events:   in.events.Load(),
 		Leases:   in.leases.Load(),
 		Rejected: in.rejected.Load(),
+		Packets:  in.packets.Load(),
 		Pending:  pending,
 		Routers:  routers,
 	}

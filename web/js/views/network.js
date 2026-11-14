@@ -4,7 +4,7 @@ import { api } from "../api.js";
 import { fmtBps, fmtBytes, fmtMs, fmtInt, fmtPct, fmtAgo, fmtNum, fmtDuration } from "../format.js";
 import { lines, legend, bucketsToPoints } from "../charts.js";
 import { tile, table } from "../widgets.js";
-import { throughputChart, probeChart } from "./overview.js";
+import { throughputChart, probeChart, scaleToggle } from "./overview.js";
 import { compareRange } from "../range.js";
 
 function viewState(state) {
@@ -41,7 +41,7 @@ export const network = {
       const ifaceSelect = h("select", { onchange: (e) => { v.iface = e.target.value; document.getElementById("refresh").click(); } },
         net.interfaces.filter((i) => i.running || i.rx_bytes > 0).map((i) => h("option", { value: i.name, selected: i.name === sel }, i.wan ? `${i.name} (WAN)` : i.name)));
       blocks.push(h("div", { class: "card" },
-        h("div", { class: "card-head" }, sectionTitle("download", "green", "Throughput", "Bits per second, averaged per bucket"), ifaceSelect),
+        h("div", { class: "card-head" }, sectionTitle("download", "green", "Throughput", "Average per bucket as the line, the bucket's peak as the thin line above it"), h("div", { class: "head-tools" }, scaleToggle(), ifaceSelect)),
         throughputChart(net, state, 240, prevNet)));
 
       blocks.push(card(sectionTitle("router", "violet", "Interfaces", `${net.interfaces.length} on ${net.router.identity}`),

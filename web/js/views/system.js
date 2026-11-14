@@ -62,6 +62,7 @@ export const system = {
       ["Answered", `${fmtInt(ingest.answered)} (${fmtPct(ingest.answered, ingest.queries, 0)})`],
       ["Answers without a query", fmtInt(ingest.orphan_answers)],
       ["Other events", fmtInt(ingest.events)],
+      ...(ingest.packets ? [["Packet dumps skipped", `${fmtInt(ingest.packets)}, turn off the packet topic in /system logging`]] : []),
       ["DHCP leases seen", fmtInt(ingest.leases)],
       ["Rejected (not in SYSLOG_SOURCES)", fmtInt(ingest.rejected)],
       ["Waiting for answer", fmtInt(ingest.pending)],

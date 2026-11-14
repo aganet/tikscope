@@ -121,13 +121,35 @@ function yTicks(max, plotH) {
   return all.filter((_, i) => i % every === 0 || i === all.length - 1);
 }
 
-function frame(width, height, bucketSecs, times, maxY, yFormat) {
+// A y axis: tick values and the pixel row of any value, clamped to the plot.
+function linearAxis(maxY, plotH) {
+  return { ticks: yTicks(maxY, plotH), y: (v) => PAD.top + plotH - (Math.max(0, Math.min(v, maxY)) / maxY) * plotH };
+}
+
+// Log axis from the decade below the smallest value (at most three decades
+// under the top) so bursts and the usual traffic are both readable.
+function logAxis(maxY, minV, plotH) {
+  const top = niceStep(maxY);
+  const floor = Math.max(top / 1000, Math.pow(10, Math.floor(Math.log10(Math.max(minV, 1e-9)))));
+  const lt = Math.log10(top), lf = Math.log10(floor);
+  const ticks = [];
+  for (let t = floor; t < top * 0.999; t *= 10) ticks.push(t);
+  ticks.push(top);
+  const room = plotH < 24 ? 1 : plotH < 50 ? 2 : plotH < 110 ? 3 : 5;
+  const every = Math.ceil(ticks.length / room);
+  return {
+    ticks: ticks.filter((_, i) => i % every === 0 || i === ticks.length - 1),
+    y: (v) => PAD.top + plotH - Math.max(0, Math.min(1, (Math.log10(Math.max(v, floor)) - lf) / (lt - lf))) * plotH,
+  };
+}
+
+function frame(width, height, bucketSecs, times, yAxis, yFormat) {
   const svg = h("svg:svg", { viewBox: `0 0 ${width} ${height}`, width, height });
   const plotW = width - PAD.left - PAD.right, plotH = height - PAD.top - PAD.bottom;
   const grid = h("svg:g", { class: "grid" });
   const axis = h("svg:g", { class: "axis" });
-  for (const t of yTicks(maxY, plotH)) {
-    const y = PAD.top + plotH - (t / maxY) * plotH;
+  for (const t of yAxis.ticks) {
+    const y = yAxis.y(t);
     grid.appendChild(h("svg:line", { x1: PAD.left, x2: PAD.left + plotW, y1: y, y2: y }));
     axis.appendChild(h("svg:text", { x: PAD.left - 6, y: y + 4, "text-anchor": "end" }, yFormat(t)));
   }
@@ -170,7 +192,8 @@ export function stackedBars(container, { buckets, bucketSecs, series, height = 2
   const totals = buckets.map((b) => series.reduce((s, k) => s + (b[k.key] || 0), 0));
   const overlayVals = overlay ? overlay.points.map((p) => p.v).filter((v) => v !== null && v !== undefined) : [];
   const maxY = niceMax(Math.max(...totals, ...overlayVals));
-  const { svg, plotW, plotH } = frame(width, height, bucketSecs, buckets.map((b) => b.ts), maxY, yFormat);
+  const plotH0 = height - PAD.top - PAD.bottom;
+  const { svg, plotW, plotH } = frame(width, height, bucketSecs, buckets.map((b) => b.ts), linearAxis(maxY, plotH0), yFormat);
   const n = buckets.length;
   const slot = plotW / n;
   const barW = Math.max(1, Math.min(24, slot - 2));
@@ -211,24 +234,32 @@ export function stackedBars(container, { buckets, bucketSecs, series, height = 2
 }
 
 // Lines. series: [{label, color, points: [{ts, v}]}], v may be null for gaps.
-export function lines(container, { series, bucketSecs, height = 200, yFormat = fmtNum, valueFormat = fmtNum, area = false, maxY: fixedMax, band = false }) {
+// band draws each bucket's peak as a thin line with shading under it, and the
+// axis reaches the peaks. scale: "linear", "log", or "auto", which picks log
+// when the peaks are more than eight times the typical level, so a burst and
+// the usual traffic are both readable.
+export function lines(container, { series, bucketSecs, height = 200, yFormat = fmtNum, valueFormat = fmtNum, area = false, maxY: fixedMax, band = false, scale = "linear" }) {
   clear(container);
   container.classList.add("chart");
   const width = Math.max(120, container.clientWidth || 600);
   height = resolveHeight(height, container);
   const times = series[0] ? series[0].points.map((p) => p.ts) : [];
-  // The axis follows the lines; a band peak above it is clipped at the top
-  // so one burst in a long range does not flatten the whole chart.
-  const all = series.flatMap((s) => s.points.map((p) => p.v)).filter((v) => v !== null && v !== undefined);
-  if (!times.length || !all.length) {
+  const avgs = series.flatMap((s) => s.points.map((p) => p.v)).filter((v) => v !== null && v !== undefined);
+  const peaks = band ? series.flatMap((s) => s.points.map((p) => p.max)).filter((v) => v !== null && v !== undefined) : [];
+  if (!times.length || !avgs.length) {
     container.appendChild(h("div", { class: "chart-empty" }, "No data in this range"));
     return;
   }
-  const maxY = fixedMax || niceMax(Math.max(...all));
-  const { svg, plotW, plotH } = frame(width, height, bucketSecs, times, maxY, yFormat);
+  const maxAvg = Math.max(...avgs), maxPeak = Math.max(maxAvg, ...peaks);
+  const maxY = fixedMax || niceMax(maxPeak);
+  const positive = avgs.filter((v) => v > 0);
+  const log = scale === "log" || (scale === "auto" && positive.length > 0 && maxPeak > 8 * maxAvg);
+  const plotH0 = height - PAD.top - PAD.bottom;
+  const yAxis = log ? logAxis(maxY, Math.min(...positive), plotH0) : linearAxis(maxY, plotH0);
+  const { svg, plotW, plotH } = frame(width, height, bucketSecs, times, yAxis, yFormat);
   const n = times.length;
   const xAt = (i) => PAD.left + ((i + 0.5) / n) * plotW;
-  const yAt = (v) => PAD.top + plotH - (Math.min(v, maxY) / maxY) * plotH;
+  const yAt = yAxis.y;
   if (band) {
     for (const s of series) {
       let d = "", open = false;
@@ -239,6 +270,7 @@ export function lines(container, { series, bucketSecs, height = 200, yFormat = f
       });
       if (open) d += ` L${xAt(s.points.length - 1)} ${PAD.top + plotH} Z`;
       svg.appendChild(h("svg:path", { d, fill: s.color, "fill-opacity": "0.1" }));
+      svg.appendChild(h("svg:path", { d: d.replace(/ L[\d.]+ [\d.]+ Z/g, "").replace(/M([\d.]+) [\d.]+ L\1 /g, "M$1 "), fill: "none", stroke: s.color, "stroke-width": "1", "stroke-opacity": "0.55", "stroke-linejoin": "round" }));
     }
   }
   for (const s of series) {

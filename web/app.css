@@ -82,6 +82,11 @@ select:focus-visible, input:focus-visible, button:focus-visible, a:focus-visible
 .btn:hover, .icon-btn:hover { background: var(--surface-2); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .btn.small { height: 28px; padding: 0 10px; font-size: 12px; }
+.seg-group { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: 28px; }
+.seg-group button { border: 0; background: var(--surface); color: var(--text-2); font: inherit; font-size: 12px; padding: 0 10px; cursor: pointer; }
+.seg-group button + button { border-left: 1px solid var(--border); }
+.seg-group button.active { background: var(--accent); color: #fff; }
+.head-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .btn[disabled] { opacity: .5; cursor: default; }
 .icon-btn { width: 36px; padding: 0; }
 .icon-btn svg, .btn svg { width: 16px; height: 16px; }
@@ -201,6 +206,11 @@ td.nowrap { white-space: nowrap; }
 .filters input { min-width: 180px; }
 .filters .spacer { flex: 1; }
 
+#progress { position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 60; pointer-events: none; overflow: hidden; }
+#progress::before { content: ""; position: absolute; inset: 0; width: 40%; background: var(--accent); transform: translateX(-100%); opacity: 0; }
+body.loading #progress::before { opacity: 1; animation: progress 1.2s ease-in-out infinite; }
+@keyframes progress { to { transform: translateX(250%); } }
+.loading { color: var(--muted); font-size: 13px; padding: 24px 0; }
 .chart { position: relative; width: 100%; }
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart .axis text { fill: var(--muted); font-size: 11px; }
