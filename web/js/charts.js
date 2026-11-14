@@ -173,7 +173,9 @@ export function lines(container, { series, bucketSecs, height = 200, yFormat = f
   const width = Math.max(120, container.clientWidth || 600);
   height = resolveHeight(height, container);
   const times = series[0] ? series[0].points.map((p) => p.ts) : [];
-  const all = series.flatMap((s) => s.points.flatMap((p) => [p.v, band ? p.max : null]).filter((v) => v !== null && v !== undefined));
+  // The axis follows the lines; a band peak above it is clipped at the top
+  // so one burst in a long range does not flatten the whole chart.
+  const all = series.flatMap((s) => s.points.map((p) => p.v)).filter((v) => v !== null && v !== undefined);
   if (!times.length || !all.length) {
     container.appendChild(h("div", { class: "chart-empty" }, "No data in this range"));
     return;
