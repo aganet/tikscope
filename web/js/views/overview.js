@@ -76,19 +76,21 @@ function current(net, dir) {
   return null;
 }
 
-function peak(buckets) {
-  return Math.max(0, ...(buckets || []).map((b) => b.max || 0));
+function avgPeak(buckets) {
+  return Math.max(0, ...(buckets || []).map((b) => b.avg || 0));
 }
 
 export function networkNow(net, state, { navigate, openDrawer }, chartHeight = 220, prevNet = null) {
   const rx = net.throughput.rx || [], tx = net.throughput.tx || [];
   const down = current(net, "rx"), up = current(net, "tx");
-  const downMax = net.limits.down || niceMax(Math.max(peak(rx), down || 0, 1e6));
-  const upMax = net.limits.up || niceMax(Math.max(peak(tx), up || 0, 1e6));
+  // Without a line speed the arc scales like the chart, to the busiest bucket
+  // average, so one burst does not shrink the needle for the next day.
+  const downMax = net.limits.down || niceMax(Math.max(avgPeak(rx), down || 0, 1e6));
+  const upMax = net.limits.up || niceMax(Math.max(avgPeak(tx), up || 0, 1e6));
   const gDown = h("div"), gUp = h("div");
   draw(() => {
-    gauge(gDown, { value: down, max: downMax, label: "Download", color: "var(--viz-1)", format: fmtBps, peak: peakHold(`${net.wan}:rx`, down), sub: net.limits.down ? "of configured line speed" : `scale from peak ${fmtBps(peak(rx))} in range` });
-    gauge(gUp, { value: up, max: upMax, label: "Upload", color: "var(--viz-2)", format: fmtBps, peak: peakHold(`${net.wan}:tx`, up), sub: net.limits.up ? "of configured line speed" : `scale from peak ${fmtBps(peak(tx))} in range` });
+    gauge(gDown, { value: down, max: downMax, label: "Download", color: "var(--viz-1)", format: fmtBps, peak: peakHold(`${net.wan}:rx`, down), sub: net.limits.down ? "of configured line speed" : `scale from peak ${fmtBps(avgPeak(rx))} in range` });
+    gauge(gUp, { value: up, max: upMax, label: "Upload", color: "var(--viz-2)", format: fmtBps, peak: peakHold(`${net.wan}:tx`, up), sub: net.limits.up ? "of configured line speed" : `scale from peak ${fmtBps(avgPeak(tx))} in range` });
   });
   const probe = net.probes[0];
   const r = net.router;

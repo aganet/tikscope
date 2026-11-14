@@ -232,9 +232,10 @@ export function lines(container, { series, bucketSecs, height = 200, yFormat = f
   if (band) {
     for (const s of series) {
       let d = "", open = false;
+      const peaks = bridged(s.points.map((p) => ({ v: p.max })));
       s.points.forEach((p, i) => {
-        if (p.max === null || p.max === undefined) { if (open) d += ` L${xAt(i - 1)} ${PAD.top + plotH} Z`; open = false; return; }
-        if (!open) { d += `M${xAt(i)} ${PAD.top + plotH} L${xAt(i)} ${yAt(p.max)}`; open = true; } else d += ` L${xAt(i)} ${yAt(p.max)}`;
+        if (peaks[i] === null) { if (open) d += ` L${xAt(i - 1)} ${PAD.top + plotH} Z`; open = false; return; }
+        if (!open) { d += `M${xAt(i)} ${PAD.top + plotH} L${xAt(i)} ${yAt(peaks[i])}`; open = true; } else d += ` L${xAt(i)} ${yAt(peaks[i])}`;
       });
       if (open) d += ` L${xAt(s.points.length - 1)} ${PAD.top + plotH} Z`;
       svg.appendChild(h("svg:path", { d, fill: s.color, "fill-opacity": "0.1" }));
@@ -242,12 +243,13 @@ export function lines(container, { series, bucketSecs, height = 200, yFormat = f
   }
   for (const s of series) {
     let d = "", areaD = "", start = null;
+    const drawn = bridged(s.points);
     s.points.forEach((p, i) => {
-      if (p.v === null || p.v === undefined) {
+      if (drawn[i] === null) {
         if (start !== null) { areaD += ` L${xAt(i - 1)} ${PAD.top + plotH} Z`; start = null; }
         return;
       }
-      const x = xAt(i), y = yAt(p.v);
+      const x = xAt(i), y = yAt(drawn[i]);
       if (start === null) { d += `M${x} ${y}`; areaD += `M${x} ${PAD.top + plotH} L${x} ${y}`; start = i; }
       else { d += ` L${x} ${y}`; areaD += ` L${x} ${y}`; }
     });
@@ -284,6 +286,14 @@ export function lines(container, { series, bucketSecs, height = 200, yFormat = f
   container.appendChild(svg);
 }
 
+// One empty bucket between two filled ones is a missed poll, not an outage:
+// the line crosses it. Two or more in a row stay a gap. The tooltip still
+// shows the bucket as empty.
+function bridged(points) {
+  const v = points.map((p) => (p.v === null || p.v === undefined ? null : p.v));
+  return v.map((x, i) => (x === null && i > 0 && i < v.length - 1 && v[i - 1] !== null && v[i + 1] !== null ? (v[i - 1] + v[i + 1]) / 2 : x));
+}
+
 // A recent-trend sparkline: the last 30 real samples, evenly spaced.
 export function sparkline(points, color, width = 120, height = 28) {
   const vals = points.filter((p) => p !== null && p !== undefined).slice(-30);
@@ -315,15 +325,25 @@ export function draw(fn) {
 
 // Speedometer: a 270 degree arc opening at the bottom, the live value in the
 // centre, major ticks labelled outside the arc and a marker at the tip.
-// Peak hold like an analog meter: the highest value seen stays marked on the
-// arc for a while, then the marker resets to the live value.
-const HOLD_MS = 5 * 60 * 1000;
+// Peak hold like a transceiver's meter: the marker sits at the highest value
+// for HOLD_MS, then falls back to the needle over DECAY_MS. Returns null once
+// it has caught up.
+const HOLD_MS = 15 * 1000, DECAY_MS = 45 * 1000;
 const peaks = new Map();
 export function peakHold(key, value, now = Date.now()) {
   const v = value === null || value === undefined ? 0 : value;
   const held = peaks.get(key);
-  if (!held || v >= held.value || now - held.at > HOLD_MS) peaks.set(key, { value: v, at: now });
-  return peaks.get(key);
+  if (!held || v >= held.top) {
+    peaks.set(key, { top: v, at: now });
+    return null;
+  }
+  const fall = Math.max(0, now - held.at - HOLD_MS) / DECAY_MS;
+  const marker = held.top - (held.top - v) * Math.min(1, fall);
+  if (marker <= v) {
+    peaks.set(key, { top: v, at: now });
+    return null;
+  }
+  return { value: marker, top: held.top, at: held.at };
 }
 
 export function gauge(container, { value, max, label, color, format, sub, peak }) {
@@ -350,16 +370,19 @@ export function gauge(container, { value, max, label, color, format, sub, peak }
   defs.appendChild(grad);
   svg.appendChild(defs);
   svg.appendChild(h("svg:path", { d: arc(start, end, r), fill: "none", stroke: "var(--surface-2)", "stroke-width": stroke, "stroke-linecap": "round" }));
-  for (let i = 0; i <= 20; i++) {
-    const a = start + (i / 20) * (end - start);
-    const major = i % 5 === 0;
+  // Major ticks on the same round step as a chart axis, four minors between.
+  const step = max > 0 ? niceStep(max / 4) : 1;
+  const majors = Math.max(1, Math.round(max / step));
+  for (let i = 0; i <= majors * 4; i++) {
+    const a = start + (i / (majors * 4)) * (end - start);
+    const major = i % 4 === 0;
     const [x1, y1] = point(a, r + stroke / 2 + 4), [x2, y2] = point(a, r + stroke / 2 + (major ? 11 : 7));
     svg.appendChild(h("svg:line", { x1, y1, x2, y2, stroke: "var(--muted)", "stroke-width": major ? "1.5" : "1", "stroke-opacity": major ? "1" : "0.6" }));
     if (major) {
       const [tx, ty] = point(a, r + stroke / 2 + 24);
       const c = Math.cos(rad(a));
       const anchor = Math.abs(c) < 0.3 ? "middle" : c < 0 ? "end" : "start";
-      svg.appendChild(h("svg:text", { x: tx, y: ty + 4, "text-anchor": anchor, class: "tick" }, tf((i / 20) * max)));
+      svg.appendChild(h("svg:text", { x: tx, y: ty + 4, "text-anchor": anchor, class: "tick" }, tf((i / (majors * 4)) * max)));
     }
   }
   // The marker is always drawn so an idle link still shows where the needle is.
@@ -375,6 +398,6 @@ export function gauge(container, { value, max, label, color, format, sub, peak }
   svg.appendChild(h("svg:text", { x: cx, y: cy + 24, "text-anchor": "middle", class: "unit" }, format(v).split(" ")[1] || ""));
   container.appendChild(svg);
   container.appendChild(h("div", { class: "gauge-label" }, h("b", null, label),
-    peak ? h("span", { class: "muted" }, `peak ${format(peak.value)}, ${fmtAgo(peak.at / 1000)}`) : null,
+    peak ? h("span", { class: "muted" }, `peak ${format(peak.top)}, ${fmtAgo(peak.at / 1000)}`) : null,
     sub ? h("span", { class: "muted" }, sub) : null));
 }

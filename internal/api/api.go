@@ -43,7 +43,10 @@ type Deps struct {
 	Resolver  *net.Resolver
 	Version   string
 	Retention store.Retention
-	Log       *slog.Logger
+	// MetricInterval is how often the poller writes a sample; a timeline
+	// bucket is never shorter, or every other bucket would be empty.
+	MetricInterval time.Duration
+	Log            *slog.Logger
 	// Configured WAN line speeds in bits per second; zero means auto-scale.
 	WANDownBps float64
 	WANUpBps   float64
@@ -369,7 +372,7 @@ func (a *API) metrics(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "metric is required", http.StatusBadRequest)
 		return
 	}
-	bucket := metricBucket(win.dur())
+	bucket := a.metricBucket(win.dur())
 	series, err := a.Store.MetricTimeline(r.Context(), metric, r.URL.Query().Get("key"), win.since, win.until, bucket)
 	if err != nil {
 		a.fail(w, err)
@@ -378,16 +381,18 @@ func (a *API) metrics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"bucket_secs": bucket, "since": win.since.Unix(), "until": win.until.Unix(), "series": series})
 }
 
-// metricBucket keeps metric timelines around 200 to 300 points.
-func metricBucket(window time.Duration) int64 {
-	switch {
-	case window <= time.Hour:
-		return 15
-	case window <= 6*time.Hour:
-		return 60
-	default:
-		return store.BucketFor(window)
+// metricBucket keeps a metric timeline around 700 points, fine enough for a
+// short burst to show: 2 minutes over a day, 15 minutes over a week.
+func (a *API) metricBucket(window time.Duration) int64 {
+	target := int64(window.Seconds() / 720)
+	bucket := int64(86400)
+	for _, b := range []int64{15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600, 43200} {
+		if b >= target {
+			bucket = b
+			break
+		}
 	}
+	return max(bucket, int64(a.MetricInterval.Seconds()))
 }
 
 type probeView struct {
@@ -420,7 +425,7 @@ func (a *API) network(r *http.Request) (any, error) {
 	}
 	ctx := r.Context()
 	since, until := w.since, w.until
-	bucket := metricBucket(w.dur())
+	bucket := a.metricBucket(w.dur())
 	v := networkView{BucketSecs: bucket, Since: since.Unix(), Until: until.Unix(), Throughput: map[string][]store.MetricBucket{}, All: map[string]map[string][]store.MetricBucket{},
 		Limits: map[string]float64{"down": a.WANDownBps, "up": a.WANUpBps}, System: map[string][]store.MetricBucket{}, Probes: []probeView{}}
 	if a.Poller != nil {

@@ -177,7 +177,9 @@ func (p *Poller) poll(ctx context.Context, steps []step, errSlot *error) {
 	now := time.Now()
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.record = now.Sub(p.lastSamp) >= p.sampleIv
+	// Half a tick of tolerance, or jitter turns every other interval into
+	// a skipped tick and the samples land 15 then 20 seconds apart.
+	p.record = now.Sub(p.lastSamp) >= p.sampleIv-p.fast/2
 	if p.record {
 		p.lastSamp = now
 	}

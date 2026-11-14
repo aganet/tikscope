@@ -289,7 +289,7 @@ func run(cfg config, log *slog.Logger) error {
 
 	handler := api.New(api.Deps{
 		Store: st, Auth: authSvc, Ingest: in, Poller: poller, Prober: prober, Web: webFS,
-		Resolver: newResolver(cfg.dnsServer), Version: version, Retention: cfg.retention, Log: log,
+		Resolver: newResolver(cfg.dnsServer), Version: version, Retention: cfg.retention, MetricInterval: cfg.metricInterval, Log: log,
 		WANDownBps: cfg.wanDownBps, WANUpBps: cfg.wanUpBps,
 	}).Handler()
 	srv := &http.Server{Addr: cfg.httpAddr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: time.Minute}
