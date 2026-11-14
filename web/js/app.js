@@ -123,7 +123,7 @@ function pan(dir) {
 
 // A refresh swaps the page in place once the data is there. A tab change
 // clears the old page at once, or on a slow link it looks like the click
-// did not take; the progress bar runs while anything loads.
+// did not take.
 async function render(reason = "refresh") {
   const { tab } = readLocation();
   const switching = current && current.name !== tab;
@@ -139,9 +139,8 @@ async function render(reason = "refresh") {
   document.body.classList.toggle("wall", tab === "wall");
   if (switching) {
     hideTooltip();
-    replace(main, h("div", { class: "view" }, h("p", { class: "loading" }, `Loading ${document.querySelector(`#tabs a[data-tab="${tab}"]`).textContent}`)));
+    replace(main, h("div", { class: "view" }, h("p", { class: "view-loading" }, `Loading ${document.querySelector(`#tabs a[data-tab="${tab}"]`).textContent}`)));
   }
-  document.body.classList.add("loading");
   try {
     const view = views[tab];
     const data = await view.load(state, ctrl.signal);
@@ -160,7 +159,6 @@ async function render(reason = "refresh") {
     document.getElementById("updated").textContent = `Error: ${err.message}`;
   } finally {
     inflight.delete(ctrl);
-    if (inflight.size === 0) document.body.classList.remove("loading");
   }
 }
 
@@ -181,7 +179,7 @@ function schedule() {
   if (!state.autoRefresh) return;
   // A tick is skipped while the last load is still running, so a slow link
   // never stacks up requests.
-  timer = setInterval(() => { if (document.visibilityState === "visible" && !interacting() && inflight.size === 0) render(); }, state.interval * 1000);
+  timer = setInterval(() => { if (document.visibilityState === "visible" && !interacting() && inflight.size === 0) render("auto"); }, state.interval * 1000);
 }
 
 function applyTheme(theme) {

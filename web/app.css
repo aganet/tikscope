@@ -206,11 +206,7 @@ td.nowrap { white-space: nowrap; }
 .filters input { min-width: 180px; }
 .filters .spacer { flex: 1; }
 
-#progress { position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 60; pointer-events: none; overflow: hidden; }
-#progress::before { content: ""; position: absolute; inset: 0; width: 40%; background: var(--accent); transform: translateX(-100%); opacity: 0; }
-body.loading #progress::before { opacity: 1; animation: progress 1.2s ease-in-out infinite; }
-@keyframes progress { to { transform: translateX(250%); } }
-.loading { color: var(--muted); font-size: 13px; padding: 24px 0; }
+.view-loading { color: var(--muted); font-size: 13px; padding: 24px 0; }
 .chart { position: relative; width: 100%; }
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart .axis text { fill: var(--muted); font-size: 11px; }
